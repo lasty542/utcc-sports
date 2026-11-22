@@ -157,14 +157,15 @@ export async function getUserQuota(req: Request, res: Response): Promise<void> {
   }
 }
 
-// อัปเดตสถานะคลังอุปกรณ์ ("พร้อมใช้งาน" / "ใช้งานอยู่") ตามจำนวนคงเหลือจริง
+// อัปเดตสถานะคลังอุปกรณ์ ("พร้อมใช้งาน" / "ใช้งานอยู่") ตามจำนวนคงเหลือจริง พร้อมกำกับยอดไม่ให้เกิน total_qty
 async function refreshEquipmentStatus(client: { query: typeof pool.query }, equipmentId: number): Promise<void> {
   await client.query(
     `UPDATE equipment
-     SET status = CASE
-       WHEN COALESCE(available_qty, 0) >= COALESCE(total_qty, 0) THEN 'พร้อมใช้งาน'
-       ELSE 'ใช้งานอยู่'
-     END
+     SET available_qty = LEAST(total_qty, GREATEST(0, available_qty)),
+         status = CASE
+           WHEN available_qty >= total_qty THEN 'พร้อมใช้งาน'
+           ELSE 'ใช้งานอยู่'
+         END
      WHERE id = $1`,
     [equipmentId]
   );
@@ -390,7 +391,7 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     const itemIds = serialQuery.rows.map((r) => r.id);
 
     await client.query(
-      'UPDATE equipment SET available_qty = GREATEST(0, available_qty - $1) WHERE id = $2',
+      'UPDATE equipment SET available_qty = GREATEST(0, LEAST(total_qty, available_qty - $1)) WHERE id = $2',
       [quantity, equipmentId]
     );
     await refreshEquipmentStatus(client, equipmentId);
@@ -624,10 +625,10 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       );
     }
 
-    // 3. คืนยอด available_qty ให้ equipment
+    // 3. คืนยอด available_qty ให้ equipment (จำกัดเพดานไม่ให้เกิน total_qty ตาม check constraint)
     await client.query(
       `UPDATE equipment
-       SET available_qty = LEAST(COALESCE(total_qty, available_qty + $1), available_qty + $1)
+       SET available_qty = LEAST(total_qty, GREATEST(0, available_qty + $1))
        WHERE id = $2`,
       [borrow.quantity, borrow.equipment_id]
     );
@@ -640,10 +641,16 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
     if ((itemsCount.rows[0]?.count ?? 0) > 0) {
       await client.query(
         `UPDATE equipment
-         SET available_qty = (
-           SELECT COUNT(*)::int
-           FROM equipment_items
-           WHERE equipment_id = $1 AND status = 'available'
+         SET available_qty = LEAST(
+           total_qty,
+           GREATEST(
+             0,
+             (
+               SELECT COUNT(*)::int
+               FROM equipment_items
+               WHERE equipment_id = $1 AND status = 'available'
+             )
+           )
          )
          WHERE id = $1`,
         [borrow.equipment_id]
@@ -912,7 +919,7 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
 
         await client.query(
           `UPDATE equipment
-           SET available_qty = LEAST(COALESCE(total_qty, available_qty + $1), available_qty + $1)
+           SET available_qty = LEAST(total_qty, GREATEST(0, available_qty + $1))
            WHERE id = $2`,
           [borrow.quantity, borrow.equipment_id]
         );
@@ -924,10 +931,16 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         if ((itemsCount.rows[0]?.count ?? 0) > 0) {
           await client.query(
             `UPDATE equipment
-             SET available_qty = (
-               SELECT COUNT(*)::int
-               FROM equipment_items
-               WHERE equipment_id = $1 AND status = 'available'
+             SET available_qty = LEAST(
+               total_qty,
+               GREATEST(
+                 0,
+                 (
+                   SELECT COUNT(*)::int
+                   FROM equipment_items
+                   WHERE equipment_id = $1 AND status = 'available'
+                 )
+               )
              )
              WHERE id = $1`,
             [borrow.equipment_id]
@@ -1005,7 +1018,7 @@ export async function deleteBorrow(req: Request, res: Response): Promise<void> {
 
     if (borrow.status === 'pending' || borrow.status === 'borrowing' || borrow.status === 'approved') {
       await client.query(
-        'UPDATE equipment SET available_qty = available_qty + $1 WHERE id = $2',
+        'UPDATE equipment SET available_qty = LEAST(total_qty, GREATEST(0, available_qty + $1)) WHERE id = $2',
         [borrow.quantity, borrow.equipment_id]
       );
       await client.query(

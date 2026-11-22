@@ -314,10 +314,13 @@ export async function updateItemStatus(req: Request, res: Response): Promise<voi
     // ปรับปรุงจำนวน available_qty ในตาราง equipment ให้อัปเดตอัตโนมัติ
     await client.query(
       `UPDATE equipment
-       SET available_qty = (
-         SELECT COUNT(*)::int
-         FROM equipment_items
-         WHERE equipment_id = $1 AND status = 'available'
+       SET available_qty = LEAST(
+         total_qty,
+         (
+           SELECT COUNT(*)::int
+           FROM equipment_items
+           WHERE equipment_id = $1 AND status = 'available'
+         )
        )
        WHERE id = $1`,
       [targetItem.equipment_id]

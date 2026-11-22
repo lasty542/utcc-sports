@@ -213,10 +213,13 @@ async function syncEquipmentItems(): Promise<void> {
     // คำนวณจำนวนคงเหลือ (available_qty) จากรายการชิ้นที่สถานะ available
     await pool.query(`
       UPDATE equipment e
-      SET available_qty = (
-        SELECT COUNT(*)::int
-        FROM equipment_items ei
-        WHERE ei.equipment_id = e.id AND ei.status = 'available'
+      SET available_qty = LEAST(
+        e.total_qty,
+        (
+          SELECT COUNT(*)::int
+          FROM equipment_items ei
+          WHERE ei.equipment_id = e.id AND ei.status = 'available'
+        )
       )
     `);
     console.log('Synchronized equipment items serials successfully.');
