@@ -325,92 +325,94 @@ export default function Login() {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#89a9ba] bg-cover bg-center bg-fixed font-sans flex flex-col justify-between items-center p-3 sm:p-6 relative overflow-x-hidden"
+      className="min-h-screen w-full bg-[#89a9ba] bg-cover bg-center bg-fixed font-sans flex items-center justify-center p-3 sm:p-6 py-6 sm:py-10 relative overflow-y-auto overflow-x-hidden"
       style={{ backgroundImage: `url('${SCENIC_MEADOW_BG}')` }}
     >
       {/* Background Soft Overlay */}
       <div className="fixed inset-0 bg-gradient-to-b from-slate-900/30 via-emerald-950/25 to-slate-950/50 backdrop-blur-[2px] pointer-events-none z-0" />
 
-      {/* Top Floating Mini Brand Pill */}
-      <div className="relative z-10 w-full max-w-[460px] mx-auto flex items-center justify-between mb-3">
-        <div className="inline-flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-200 shadow-md">
-          <Leaf className="text-emerald-600" size={16} />
-          <span className="text-xs font-black tracking-wider text-slate-900 uppercase">
-            UTCC Sport<span className="text-emerald-600">®</span>
-          </span>
-        </div>
-
-        <div className="inline-flex items-center gap-1.5 bg-white/80 backdrop-blur-md border border-slate-200 text-slate-800 px-3 py-1 rounded-full text-[11px] font-bold shadow-xs">
-          <ShieldCheck size={14} className="text-emerald-700" />
-          <span>ระบบยืม-คืนอุปกรณ์กีฬา</span>
-        </div>
-      </div>
-
-      {/* Main Card (High Contrast Clean White Card) */}
-      <motion.div
-        initial={{ opacity: 0, y: 16, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.28, ease: 'easeOut' }}
-        className="relative z-10 w-full max-w-[450px] sm:max-w-[470px] mx-auto my-auto bg-white/95 backdrop-blur-md rounded-3xl shadow-xl border border-slate-200 p-6 sm:p-8 flex flex-col"
-      >
-        {/* Brand Icon & Welcome Title */}
-        <div className="text-center mb-5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center mx-auto mb-3 shadow-md shadow-emerald-600/20">
-            <Leaf size={24} className="stroke-[2.5]" />
+      {/* Centered Column (Wraps Top Bar, Main Card, and Footer for all screen sizes) */}
+      <div className="relative z-10 w-full max-w-[440px] sm:max-w-[460px] mx-auto flex flex-col items-center my-auto">
+        {/* Top Floating Mini Brand Pill */}
+        <div className="w-full flex items-center justify-between mb-2.5">
+          <div className="inline-flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-200 shadow-md">
+            <Leaf className="text-emerald-600" size={16} />
+            <span className="text-xs font-black tracking-wider text-slate-900 uppercase">
+              UTCC Sport<span className="text-emerald-600">®</span>
+            </span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            {mode === 'login' ? 'เข้าสู่ระบบ UTCC Sport' : 'สมัครสมาชิกใหม่'}
-          </h1>
-          <p className="text-xs text-slate-600 mt-1">
-            {mode === 'login'
-              ? 'ระบบยืม-คืนอุปกรณ์กีฬาออนไลน์ มหาวิทยาลัยหอการค้าไทย'
-              : 'กรอกข้อมูลนักศึกษาของคุณเพื่อเริ่มต้นใช้งาน'}
-          </p>
-        </div>
 
-        {/* Minimal Tab Switcher Pill */}
-        <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl mb-5 text-xs sm:text-sm font-bold border border-slate-200/80">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('login');
-              setRegError(null);
-              setApiError(null);
-            }}
-            className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              mode === 'login'
-                ? 'bg-white text-slate-900 shadow-sm font-extrabold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <LogIn size={15} /> เข้าสู่ระบบ
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode('register');
-              setApiError(null);
-            }}
-            className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              mode === 'register'
-                ? 'bg-white text-slate-900 shadow-sm font-extrabold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <UserPlus size={15} /> สมัครสมาชิก
-          </button>
-        </div>
-
-        {/* Global Error Banner */}
-        {apiError && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-4 shadow-2xs"
-          >
-            <AlertCircle size={16} className="shrink-0 mt-0.5" />
-            <span>{apiError}</span>
+          <div className="inline-flex items-center gap-1.5 bg-white/80 backdrop-blur-md border border-slate-200 text-slate-800 px-3 py-1 rounded-full text-[11px] font-bold shadow-xs">
+            <ShieldCheck size={14} className="text-emerald-700" />
+            <span>ระบบยืม-คืนอุปกรณ์กีฬา</span>
           </div>
-        )}
+        </div>
+
+        {/* Main Card (High Contrast Clean White Card) */}
+        <motion.div
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.28, ease: 'easeOut' }}
+          className="w-full bg-white/95 backdrop-blur-md rounded-3xl shadow-xl border border-slate-200 p-5 sm:p-7 flex flex-col"
+        >
+          {/* Brand Icon & Welcome Title */}
+          <div className="text-center mb-4">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center mx-auto mb-2.5 shadow-md shadow-emerald-600/20">
+              <Leaf size={22} className="stroke-[2.5]" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+              {mode === 'login' ? 'เข้าสู่ระบบ UTCC Sport' : 'สมัครสมาชิกใหม่'}
+            </h1>
+            <p className="text-xs text-slate-600 mt-1">
+              {mode === 'login'
+                ? 'ระบบยืม-คืนอุปกรณ์กีฬาออนไลน์ มหาวิทยาลัยหอการค้าไทย'
+                : 'กรอกข้อมูลนักศึกษาของคุณเพื่อเริ่มต้นใช้งาน'}
+            </p>
+          </div>
+
+          {/* Minimal Tab Switcher Pill */}
+          <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl mb-4 text-xs sm:text-sm font-bold border border-slate-200/80">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setRegError(null);
+                setApiError(null);
+              }}
+              className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                mode === 'login'
+                  ? 'bg-white text-slate-900 shadow-sm font-extrabold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <LogIn size={15} /> เข้าสู่ระบบ
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setApiError(null);
+              }}
+              className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                mode === 'register'
+                  ? 'bg-white text-slate-900 shadow-sm font-extrabold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <UserPlus size={15} /> สมัครสมาชิก
+            </button>
+          </div>
+
+          {/* Global Error Banner */}
+          {apiError && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-3 shadow-2xs"
+            >
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <span>{apiError}</span>
+            </div>
+          )}
 
         {/* Animated Form Container */}
         <AnimatePresence mode="wait">
@@ -573,12 +575,12 @@ export default function Login() {
                 </div>
               )}
 
-              {/* ฟอร์มแนวตั้ง 1 ช่องต่อ 1 บรรทัด เรียงลำดับชัดเจน */}
-              <form onSubmit={handleRegisterSubmit} className="space-y-3.5 text-xs" noValidate>
-                {/* 1) รหัสนักศึกษา */}
+              {/* ฟอร์มแนวตั้ง 1 ช่องต่อ 1 บรรทัด เรียงลำดับชัดเจน สะอาดตา */}
+              <form onSubmit={handleRegisterSubmit} className="space-y-2.5 sm:space-y-3 text-xs" noValidate>
+                {/* รหัสนักศึกษา */}
                 <div>
                   <label className="block font-bold text-slate-800 mb-1" htmlFor="regStudentId">
-                    1) รหัสนักศึกษา
+                    รหัสนักศึกษา
                   </label>
                   <input
                     id="regStudentId"
@@ -588,14 +590,14 @@ export default function Login() {
                     value={regStudentId}
                     onChange={(e) => setRegStudentId(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
-                {/* 2) ชื่อจริง */}
+                {/* ชื่อจริง */}
                 <div>
                   <label className="block font-bold text-slate-800 mb-1" htmlFor="regFirstName">
-                    2) ชื่อจริง
+                    ชื่อจริง
                   </label>
                   <input
                     id="regFirstName"
@@ -604,14 +606,14 @@ export default function Login() {
                     value={regFirstName}
                     onChange={(e) => setRegFirstName(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
-                {/* 3) นามสกุล */}
+                {/* นามสกุล */}
                 <div>
                   <label className="block font-bold text-slate-800 mb-1" htmlFor="regLastName">
-                    3) นามสกุล
+                    นามสกุล
                   </label>
                   <input
                     id="regLastName"
@@ -620,15 +622,15 @@ export default function Login() {
                     value={regLastName}
                     onChange={(e) => setRegLastName(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
-                {/* 4) อีเมลติดต่อ (พร้อมปุ่มเติมโดเมนอัตโนมัติ) */}
+                {/* อีเมลติดต่อ (พร้อมปุ่มเติมโดเมนอัตโนมัติ) */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="font-bold text-slate-800" htmlFor="regEmail">
-                      4) อีเมลติดต่อ
+                      อีเมลติดต่อ
                     </label>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <button
@@ -654,14 +656,14 @@ export default function Login() {
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
-                {/* 5) รหัสผ่าน (6+ ตัวอักษร) พร้อมปุ่มเปิด-ปิดตา */}
+                {/* รหัสผ่าน (6+ ตัวอักษร) พร้อมปุ่มเปิด-ปิดตา */}
                 <div>
                   <label className="block font-bold text-slate-800 mb-1" htmlFor="regPassword">
-                    5) รหัสผ่าน (6+ ตัวอักษร)
+                    รหัสผ่าน (6+ ตัวอักษร)
                   </label>
                   <div className="relative">
                     <input
@@ -671,7 +673,7 @@ export default function Login() {
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
                       disabled={isRegistering}
-                      className="w-full px-4 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                      className="w-full px-3.5 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                     />
                     <button
                       type="button"
@@ -685,10 +687,10 @@ export default function Login() {
                   </div>
                 </div>
 
-                {/* 6) ยืนยันรหัสผ่าน พร้อมปุ่มเปิด-ปิดตา */}
+                {/* ยืนยันรหัสผ่าน พร้อมปุ่มเปิด-ปิดตา */}
                 <div>
                   <label className="block font-bold text-slate-800 mb-1" htmlFor="regConfirm">
-                    6) ยืนยันรหัสผ่าน
+                    ยืนยันรหัสผ่าน
                   </label>
                   <div className="relative">
                     <input
@@ -698,7 +700,7 @@ export default function Login() {
                       value={regConfirmPassword}
                       onChange={(e) => setRegConfirmPassword(e.target.value)}
                       disabled={isRegistering}
-                      className="w-full px-4 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                      className="w-full px-3.5 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                     />
                     <button
                       type="button"
@@ -812,9 +814,10 @@ export default function Login() {
         </div>
       </motion.div>
 
-      {/* Bottom Minimal Footer */}
-      <div className="relative z-10 text-center text-[11px] text-white/90 font-medium mt-3 drop-shadow-xs">
-        University of the Thai Chamber of Commerce • UTCC Sport
+        {/* Bottom Minimal Footer */}
+        <div className="text-center text-[11px] text-white/90 font-medium mt-3 drop-shadow-xs">
+          University of the Thai Chamber of Commerce • UTCC Sport
+        </div>
       </div>
 
       {/* ==================== 2-STEP INSTANT FORGOT PASSWORD MODAL ==================== */}
