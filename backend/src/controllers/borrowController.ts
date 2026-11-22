@@ -20,6 +20,7 @@ interface BorrowRow {
   borrow_date: string;
   due_date: string;
   status: BorrowStatusDb;
+  item_codes: string[] | null;
   is_overdue: boolean;
 }
 
@@ -40,6 +41,8 @@ function toBorrow(row: BorrowRow) {
   else if (row.status === 'pending' || row.status === 'approved') statusLabel = 'รออนุมัติรับอุปกรณ์';
   else if (row.status === 'returned') statusLabel = 'คืนเรียบร้อยแล้ว';
 
+  const codes = Array.isArray(row.item_codes) ? row.item_codes : [];
+
   return {
     id: row.id,
     userId: row.user_id,
@@ -53,6 +56,8 @@ function toBorrow(row: BorrowRow) {
     dueDate: row.due_date,
     status: statusLabel,
     statusType,
+    itemCodes: codes,
+    itemCodeLabel: codes.length > 0 ? codes.join(', ') : '-',
   };
 }
 
@@ -96,11 +101,57 @@ const BORROW_SELECT = `
     b.borrow_date::text AS borrow_date,
     b.due_date::text AS due_date,
     b.status,
-    (b.status = 'borrowing' AND b.due_date < CURRENT_DATE) AS is_overdue
+    b.item_codes,
+    (b.status IN ('borrowing', 'borrowed') AND b.due_date < CURRENT_DATE) AS is_overdue
   FROM borrows b
   JOIN users u ON u.id = b.user_id
   JOIN equipment e ON e.id = b.equipment_id
 `;
+
+// ตรวจสอบโควตาการยืมและสถานะคงค้างของนักศึกษาปัจจุบัน
+export async function getUserQuota(req: Request, res: Response): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ message: 'ไม่พบโทเคนสำหรับยืนยันตัวตน' });
+    return;
+  }
+
+  try {
+    const summary = await pool.query<{
+      current_items: number;
+      current_requests: number;
+      has_overdue: boolean;
+    }>(
+      `SELECT
+         COALESCE(SUM(quantity), 0)::int AS current_items,
+         COUNT(*)::int AS current_requests,
+         COALESCE(BOOL_OR(due_date < CURRENT_DATE), false) AS has_overdue
+       FROM borrows
+       WHERE user_id = $1 AND status IN ('pending', 'approved', 'borrowing', 'borrowed')`,
+      [req.user.id]
+    );
+
+    const row = summary.rows[0] || { current_items: 0, current_requests: 0, has_overdue: false };
+    const maxItems = 3;
+    const maxRequests = 2;
+    const currentItems = Number(row.current_items) || 0;
+    const currentRequests = Number(row.current_requests) || 0;
+    const hasOverdue = Boolean(row.has_overdue);
+
+    res.json({
+      maxItems,
+      maxRequests,
+      currentItems,
+      currentRequests,
+      remainingItems: Math.max(0, maxItems - currentItems),
+      remainingRequests: Math.max(0, maxRequests - currentRequests),
+      hasOverdue,
+      canBorrow: !hasOverdue && currentItems < maxItems && currentRequests < maxRequests,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลโควตาได้' });
+  }
+}
 
 // อัปเดตสถานะคลังอุปกรณ์ ("พร้อมใช้งาน" / "ใช้งานอยู่") ตามจำนวนคงเหลือจริง
 async function refreshEquipmentStatus(client: { query: typeof pool.query }, equipmentId: number): Promise<void> {
@@ -219,6 +270,47 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // 1. ตรวจสอบว่ามีรายการที่เลยกำหนดคืน (Overdue) หรือไม่
+  const overdueCheck = await pool.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+     FROM borrows
+     WHERE user_id = $1 AND status IN ('pending', 'approved', 'borrowing', 'borrowed')
+       AND due_date < CURRENT_DATE`,
+    [req.user.id]
+  );
+  if ((overdueCheck.rows[0]?.count ?? 0) > 0) {
+    res.status(400).json({
+      message: 'คุณมีรายการอุปกรณ์ที่เกินกำหนดส่งคืน กรุณานำอุปกรณ์มาคืนที่เคาน์เตอร์ก่อนสร้างคำขอใหม่',
+    });
+    return;
+  }
+
+  // 2. ตรวจสอบโควตาการยืม (สูงสุด 3 ชิ้น และไม่เกิน 2 คำขอพร้อมกัน)
+  const quotaCheck = await pool.query<{ current_items: number; current_requests: number }>(
+    `SELECT
+       COALESCE(SUM(quantity), 0)::int AS current_items,
+       COUNT(*)::int AS current_requests
+     FROM borrows
+     WHERE user_id = $1 AND status IN ('pending', 'approved', 'borrowing', 'borrowed')`,
+    [req.user.id]
+  );
+  const currentItems = quotaCheck.rows[0]?.current_items ?? 0;
+  const currentRequests = quotaCheck.rows[0]?.current_requests ?? 0;
+
+  if (currentRequests >= 2) {
+    res.status(400).json({
+      message: 'คุณมีคำขอยืมที่รอดำเนินการครบ 2 คำขอแล้ว (จำกัดสูงสุดไม่เกิน 2 คำขอพร้อมกัน)',
+    });
+    return;
+  }
+
+  if (currentItems + quantity > 3) {
+    res.status(400).json({
+      message: `โควตาการยืมไม่เพียงพอ (จำกัดสูงสุด 3 ชิ้น คุณกำลังยืม/รอรับอยู่ ${currentItems} ชิ้น จึงยืมได้อีกไม่เกิน ${Math.max(0, 3 - currentItems)} ชิ้น)`,
+    });
+    return;
+  }
+
   const client = await pool.connect();
 
   try {
@@ -242,6 +334,26 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    // เลือกรหัสประจำชิ้น (Serial Items) ที่ว่างอยู่พร้อมล็อกแถว FOR UPDATE ป้องกันการแย่งชิ้นเดียวกัน
+    const serialQuery = await client.query<{ id: number; item_code: string }>(
+      `SELECT id, item_code
+       FROM equipment_items
+       WHERE equipment_id = $1 AND status = 'available'
+       ORDER BY id ASC
+       LIMIT $2
+       FOR UPDATE`,
+      [equipmentId, quantity]
+    );
+
+    if (serialQuery.rows.length < quantity) {
+      await client.query('ROLLBACK');
+      res.status(409).json({ message: 'รหัสอุปกรณ์รายชิ้นที่พร้อมใช้งานไม่เพียงพอ' });
+      return;
+    }
+
+    const itemCodes = serialQuery.rows.map((r) => r.item_code);
+    const itemIds = serialQuery.rows.map((r) => r.id);
+
     await client.query(
       'UPDATE equipment SET available_qty = available_qty - $1 WHERE id = $2',
       [quantity, equipmentId]
@@ -249,12 +361,20 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     await refreshEquipmentStatus(client, equipmentId);
 
     const inserted = await client.query<{ id: number }>(
-      `INSERT INTO borrows (user_id, equipment_id, quantity, purpose, borrow_date, due_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+      `INSERT INTO borrows (user_id, equipment_id, quantity, purpose, borrow_date, due_date, status, item_codes)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
        RETURNING id`,
-      [req.user.id, equipmentId, quantity, purpose || null, borrowDate, dueDate]
+      [req.user.id, equipmentId, quantity, purpose || null, borrowDate, dueDate, itemCodes]
     );
     const borrowId = inserted.rows[0]?.id;
+
+    // ผูกรหัสประจำชิ้นเข้ากับคำขอนี้
+    await client.query(
+      `UPDATE equipment_items
+       SET status = 'reserved', borrow_id = $1
+       WHERE id = ANY($2::int[])`,
+      [borrowId, itemIds]
+    );
 
     await client.query('COMMIT');
 
@@ -327,6 +447,12 @@ export async function confirmPickup(req: Request, res: Response): Promise<void> 
     }
 
     await client.query(`UPDATE borrows SET status = 'borrowing' WHERE id = $1`, [borrow.id]);
+    await client.query(
+      `UPDATE equipment_items
+       SET status = 'borrowed'
+       WHERE borrow_id = $1 AND status != 'damaged'`,
+      [borrow.id]
+    );
     await client.query('COMMIT');
 
     const updated = await pool.query<BorrowRow>(`${BORROW_SELECT} WHERE b.id = $1`, [borrow.id]);
@@ -400,12 +526,24 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    await client.query(`UPDATE borrows SET status = 'returned' WHERE id = $1`, [borrow.id]);
     await client.query(
-      'UPDATE equipment SET available_qty = available_qty + $1 WHERE id = $2',
-      [borrow.quantity, borrow.equipment_id]
+      `UPDATE equipment_items
+       SET status = 'available', borrow_id = NULL
+       WHERE borrow_id = $1 AND status != 'damaged'`,
+      [borrow.id]
+    );
+    await client.query(
+      `UPDATE equipment
+       SET available_qty = (
+         SELECT COUNT(*)::int
+         FROM equipment_items
+         WHERE equipment_id = $1 AND status = 'available'
+       )
+       WHERE id = $1`,
+      [borrow.equipment_id]
     );
     await refreshEquipmentStatus(client, borrow.equipment_id);
-    await client.query(`UPDATE borrows SET status = 'returned' WHERE id = $1`, [borrow.id]);
     await client.query('COMMIT');
 
     const updated = await pool.query<BorrowRow>(`${BORROW_SELECT} WHERE b.id = $1`, [borrow.id]);
@@ -602,14 +740,32 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
       if (borrow.status === 'pending' || borrow.status === 'approved') {
         action = 'pickup';
         await client.query(`UPDATE borrows SET status = 'borrowing' WHERE id = $1`, [borrow.id]);
+        await client.query(
+          `UPDATE equipment_items
+           SET status = 'borrowed'
+           WHERE borrow_id = $1 AND status != 'damaged'`,
+          [borrow.id]
+        );
       } else {
         action = 'return';
+        await client.query(`UPDATE borrows SET status = 'returned' WHERE id = $1`, [borrow.id]);
         await client.query(
-          'UPDATE equipment SET available_qty = available_qty + $1 WHERE id = $2',
-          [borrow.quantity, borrow.equipment_id]
+          `UPDATE equipment_items
+           SET status = 'available', borrow_id = NULL
+           WHERE borrow_id = $1 AND status != 'damaged'`,
+          [borrow.id]
+        );
+        await client.query(
+          `UPDATE equipment
+           SET available_qty = (
+             SELECT COUNT(*)::int
+             FROM equipment_items
+             WHERE equipment_id = $1 AND status = 'available'
+           )
+           WHERE id = $1`,
+          [borrow.equipment_id]
         );
         await refreshEquipmentStatus(client, borrow.equipment_id);
-        await client.query(`UPDATE borrows SET status = 'returned' WHERE id = $1`, [borrow.id]);
       }
 
       await client.query('COMMIT');

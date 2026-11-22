@@ -17,6 +17,8 @@ import {
   RefreshCw,
   LayoutGrid,
   Sparkles,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,6 +26,7 @@ import { dashboardStyles as styles } from './Dashboard.styles';
 import SettingsModal from '../../components/SettingsModal';
 import BorrowModal from './components/BorrowModal';
 import { formatEquipCode, listEquipment, type EquipmentItem } from '../../services/equipService';
+import { getUserQuota, type UserQuotaResponse } from '../../services/borrowService';
 
 const SCENIC_MEADOW_BG =
   'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1920&auto=format&fit=crop';
@@ -101,6 +104,17 @@ export default function StudentDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEquip, setSelectedEquip] = useState<EquipmentItem | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [quota, setQuota] = useState<UserQuotaResponse | null>(null);
+
+  // ดึงข้อมูลโควตาการยืมรายบุคคล
+  const fetchQuota = useCallback(async () => {
+    try {
+      const q = await getUserQuota();
+      setQuota(q);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // โหลดรายการอุปกรณ์ทั้งหมดจาก API ใหม่หลังมีการยืมหรือกดรีเฟรช
   const reloadEquipments = useCallback(async () => {
@@ -108,6 +122,7 @@ export default function StudentDashboard() {
       setError(null);
       const data = await listEquipment();
       setEquipments(data);
+      void fetchQuota();
     } catch (err) {
       const msg = axios.isAxiosError<{ message?: string }>(err)
         ? err.response?.data?.message || 'ไม่สามารถโหลดรายการอุปกรณ์ได้'
@@ -116,7 +131,7 @@ export default function StudentDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchQuota]);
 
   useEffect(() => {
     let active = true;
@@ -138,17 +153,21 @@ export default function StudentDashboard() {
       .finally(() => {
         if (active) setLoading(false);
       });
+
+    void fetchQuota();
+
     return () => {
       active = false;
     };
-  }, []);
+  }, [fetchQuota]);
 
-  // Real-time Auto-polling ทุกๆ 4 วินาที เพื่ออัปเดตจำนวนสต็อกคงเหลือเมื่อมีคนยืมหรือคืน
+  // Real-time Auto-polling ทุกๆ 4 วินาที เพื่ออัปเดตจำนวนสต็อกคงเหลือและโควตาเมื่อมีคนยืมหรือคืน
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       try {
-        const fresh = await listEquipment();
+        const [fresh, freshQuota] = await Promise.all([listEquipment(), getUserQuota()]);
         setEquipments(fresh);
+        setQuota(freshQuota);
       } catch {
         // Silent fail during background polling
       }
@@ -268,6 +287,81 @@ export default function StudentDashboard() {
             </div>
           </div>
         </motion.header>
+
+        {/* User Borrowing Quota Status Bar */}
+        <motion.div
+          className="mb-5 bg-white/92 backdrop-blur-2xl rounded-3xl p-4 sm:p-5 shadow-[0_12px_32px_rgba(15,23,42,0.1)] border border-white/80 flex flex-wrap items-center justify-between gap-4"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="flex items-center gap-3.5">
+            <div
+              className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold shrink-0 ${
+                quota?.hasOverdue
+                  ? 'bg-red-500 text-white shadow-md shadow-red-500/20'
+                  : quota?.remainingItems === 0
+                  ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+                  : 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+              }`}
+            >
+              {quota?.hasOverdue ? (
+                <AlertTriangle size={20} />
+              ) : quota?.remainingItems === 0 ? (
+                <AlertCircle size={20} />
+              ) : (
+                <ShieldCheck size={20} />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black text-slate-800">
+                  โควตาการยืมคงเหลือ:
+                </span>
+                <span
+                  className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
+                    quota?.hasOverdue
+                      ? 'bg-red-100 text-red-800'
+                      : quota?.remainingItems === 0
+                      ? 'bg-amber-100 text-amber-900'
+                      : 'bg-emerald-100 text-emerald-900'
+                  }`}
+                >
+                  {quota?.remainingItems ?? 3} / 3 ชิ้น
+                </span>
+                <span className="text-[11px] font-bold text-slate-500">
+                  (คำขอที่ใช้งาน {quota?.currentRequests ?? 0} / 2)
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-1">
+                {quota?.hasOverdue
+                  ? '⚠️ คุณมีรายการที่เลยกำหนดส่งคืนค้างอยู่ ระบบจะระงับการสร้างคำขอยืมใหม่จนกว่าจะคืนอุปกรณ์'
+                  : quota?.remainingItems === 0
+                  ? 'คุณใช้โควตาการยืมเต็มแล้ว (สูงสุด 3 ชิ้น) ต้องนำอุปกรณ์มาส่งคืนก่อนจึงจะยืมเพิ่มได้'
+                  : 'นักศึกษา 1 คนสามารถยืมอุปกรณ์ได้สูงสุดไม่เกิน 3 ชิ้น และไม่เกิน 2 คำขอพร้อมกัน'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {quota?.hasOverdue ? (
+              <button
+                type="button"
+                onClick={() => navigate('/student/history')}
+                className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer shadow-sm"
+              >
+                ดูรายการที่ต้องคืน
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => navigate('/student/qrcode')}
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl cursor-pointer shadow-sm flex items-center gap-1.5"
+              >
+                <QrCode size={14} /> บัตรดิจิทัล
+              </button>
+            )}
+          </div>
+        </motion.div>
 
         {/* ================= EDITORIAL + FROSTED BENTO GRID ================= */}
         <div className={styles.bentoMainGrid}>

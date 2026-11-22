@@ -16,6 +16,19 @@ export interface BorrowItem {
   dueDate: string;
   status: string;
   statusType: 'pending' | 'approved' | 'borrowing' | 'borrowed' | 'returned' | 'overdue';
+  itemCodes?: string[];
+  itemCodeLabel?: string;
+}
+
+export interface UserQuotaResponse {
+  maxItems: number;
+  maxRequests: number;
+  currentItems: number;
+  currentRequests: number;
+  remainingItems: number;
+  remainingRequests: number;
+  hasOverdue: boolean;
+  canBorrow: boolean;
 }
 
 export interface CreateBorrowPayload {
@@ -38,6 +51,12 @@ export interface QrTokenResponse {
 export async function listBorrows(): Promise<BorrowItem[]> {
   const { data } = await api.get<{ borrows: BorrowItem[] }>('/borrow');
   return data.borrows;
+}
+
+// ตรวจสอบโควตาการยืมและสถานะคงค้างของนักศึกษาปัจจุบัน
+export async function getUserQuota(): Promise<UserQuotaResponse> {
+  const { data } = await api.get<UserQuotaResponse>('/borrow/quota');
+  return data;
 }
 
 // ขอ Dynamic QR Token และ PIN 6 หลักสำหรับนำไปยืนยันรับหรือคืนอุปกรณ์
@@ -90,6 +109,7 @@ export async function verifyScan(
 
 export const borrowService = {
   listBorrows,
+  getUserQuota,
   getQrToken,
   createBorrow,
   createRequest: createBorrow,

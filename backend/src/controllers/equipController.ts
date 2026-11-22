@@ -228,3 +228,117 @@ export async function deleteEquipment(req: Request, res: Response): Promise<void
     res.status(500).json({ message: 'ไม่สามารถลบอุปกรณ์ได้' });
   }
 }
+
+interface EquipmentItemRow {
+  id: number;
+  equipment_id: number;
+  item_code: string;
+  status: 'available' | 'reserved' | 'borrowed' | 'damaged';
+  borrow_id: number | null;
+  created_at: string;
+}
+
+// ดึงรหัสประจำชิ้นทั้งหมด (Serial Tracking) ของอุปกรณ์ชิ้นนั้นๆ
+export async function listEquipmentItems(req: Request, res: Response): Promise<void> {
+  const equipId = Number(req.params.id);
+  if (!Number.isInteger(equipId)) {
+    res.status(400).json({ message: 'รหัสอุปกรณ์ไม่ถูกต้อง' });
+    return;
+  }
+
+  try {
+    const result = await pool.query<EquipmentItemRow>(
+      `SELECT id, equipment_id, item_code, status, borrow_id, created_at::text
+       FROM equipment_items
+       WHERE equipment_id = $1
+       ORDER BY id ASC`,
+      [equipId]
+    );
+
+    res.json({
+      items: result.rows.map((row) => ({
+        id: row.id,
+        equipmentId: row.equipment_id,
+        itemCode: row.item_code,
+        status: row.status,
+        borrowId: row.borrow_id,
+        createdAt: row.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถโหลดรหัสอุปกรณ์รายชิ้นได้' });
+  }
+}
+
+// อัปเดตสถานะของอุปกรณ์รายชิ้น (เช่น Admin กดเปลี่ยนเป็น "ชำรุด (damaged)" หรือ "พร้อมใช้งาน (available)")
+export async function updateItemStatus(req: Request, res: Response): Promise<void> {
+  const itemId = Number(req.params.itemId);
+  const nextStatus = readString(req.body?.status);
+
+  if (!Number.isInteger(itemId) || (nextStatus !== 'damaged' && nextStatus !== 'available')) {
+    res.status(400).json({ message: 'ระบุสถานะเป็น damaged หรือ available เท่านั้น' });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const itemRes = await client.query<{ id: number; equipment_id: number; status: string }>(
+      'SELECT id, equipment_id, status FROM equipment_items WHERE id = $1 FOR UPDATE',
+      [itemId]
+    );
+    const targetItem = itemRes.rows[0];
+
+    if (!targetItem) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ message: 'ไม่พบอุปกรณ์รายชิ้นนี้' });
+      return;
+    }
+
+    if (targetItem.status === 'borrowed' || targetItem.status === 'reserved') {
+      await client.query('ROLLBACK');
+      res.status(409).json({ message: 'ไม่สามารถเปลี่ยนสถานะได้เนื่องจากอุปกรณ์กำลังถูกยืมหรือจองอยู่' });
+      return;
+    }
+
+    await client.query(
+      `UPDATE equipment_items
+       SET status = $1,
+           borrow_id = CASE WHEN $1 = 'damaged' THEN NULL ELSE borrow_id END
+       WHERE id = $2`,
+      [nextStatus, itemId]
+    );
+
+    // ปรับปรุงจำนวน available_qty ในตาราง equipment ให้อัปเดตอัตโนมัติ
+    await client.query(
+      `UPDATE equipment
+       SET available_qty = (
+         SELECT COUNT(*)::int
+         FROM equipment_items
+         WHERE equipment_id = $1 AND status = 'available'
+       )
+       WHERE id = $1`,
+      [targetItem.equipment_id]
+    );
+
+    await client.query('COMMIT');
+
+    const updatedEquip = await pool.query<EquipmentRow>(
+      `SELECT ${EQUIPMENT_COLUMNS} FROM equipment WHERE id = $1`,
+      [targetItem.equipment_id]
+    );
+
+    res.json({
+      message: nextStatus === 'damaged' ? 'บันทึกอุปกรณ์ชำรุดและตัดสต็อกพร้อมใช้งานแล้ว' : 'ปรับสถานะอุปกรณ์เป็นพร้อมใช้งานเรียบร้อยแล้ว',
+      equipment: updatedEquip.rows[0] ? toEquipment(updatedEquip.rows[0]) : null,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถอัปเดตสถานะอุปกรณ์ได้' });
+  } finally {
+    client.release();
+  }
+}

@@ -6,9 +6,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { inventoryStyles as styles } from './Inventory.styles';
-import { Package, Plus, Pencil, Trash2, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Package, Plus, Pencil, Trash2, CheckCircle2, AlertCircle, Loader2, ListTree } from 'lucide-react';
 import { motion } from 'framer-motion';
 import InventoryModal, { type InventoryItem } from './components/InventoryModal';
+import SerialItemsModal from './components/SerialItemsModal';
 import {
   formatEquipCode,
   listEquipment,
@@ -54,6 +55,7 @@ export default function Inventory() {
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [serialModalEquip, setSerialModalEquip] = useState<InventoryItem | null>(null);
 
   // โหลดรายการอุปกรณ์ทั้งหมดจาก API ใหม่
   const fetchItems = useCallback(async () => {
@@ -287,6 +289,13 @@ export default function Inventory() {
                       </td>
                       <td className={`${styles.td} text-right`}>
                         <button
+                          onClick={() => setSerialModalEquip(item)}
+                          className={`${styles.actionIconBtn} text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 mr-1`}
+                          title="จัดการรหัสประจำชิ้น (Asset Serials)"
+                        >
+                          <ListTree size={15} />
+                        </button>
+                        <button
                           onClick={() => {
                             setEditingItem(item);
                             setIsModalOpen(true);
@@ -325,6 +334,18 @@ export default function Inventory() {
           onClose={() => setIsModalOpen(false)}
           editingItem={editingItem}
           onSave={handleSaveItem}
+        />
+
+        {/* Modal จัดการรหัสประจำชิ้นและการแจ้งชำรุด */}
+        <SerialItemsModal
+          isOpen={Boolean(serialModalEquip)}
+          onClose={() => setSerialModalEquip(null)}
+          equipment={serialModalEquip}
+          onEquipmentUpdated={(updated) => {
+            setItems((prev) =>
+              prev.map((i) => (i.id === updated.id ? toInventoryItem(updated) : i))
+            );
+          }}
         />
       </div>
     </div>

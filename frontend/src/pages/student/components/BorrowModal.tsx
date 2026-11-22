@@ -1,7 +1,7 @@
 /**
  * หน้าต่าง Modal สำหรับนักศึกษาใช้กรอกรายละเอียดและส่งคำขอยืมอุปกรณ์กีฬา (Date Picker Calendar Version)
  */
-import { useState, useMemo, type FormEvent } from 'react';
+import { useState, useMemo, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,7 +20,12 @@ import {
   Sunset,
 } from 'lucide-react';
 import { formatEquipCode, type EquipmentItem } from '../../../services/equipService';
-import { borrowService, type BorrowItem } from '../../../services/borrowService';
+import {
+  borrowService,
+  getUserQuota,
+  type BorrowItem,
+  type UserQuotaResponse,
+} from '../../../services/borrowService';
 
 export interface BorrowModalProps {
   equipment: EquipmentItem | null;
@@ -104,6 +109,22 @@ function BorrowFormContent({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdBorrow, setCreatedBorrow] = useState<BorrowItem | null>(null);
+  const [quota, setQuota] = useState<UserQuotaResponse | null>(null);
+
+  useEffect(() => {
+    getUserQuota()
+      .then((q) => {
+        setQuota(q);
+        if (q.hasOverdue) {
+          setError('คุณมีรายการอุปกรณ์ที่เกินกำหนดส่งคืนค้างอยู่ กรุณานำมาคืนที่เคาน์เตอร์ก่อนส่งคำขอใหม่');
+        } else if (q.remainingItems <= 0) {
+          setError('คุณใช้โควตาการยืมครบ 3 ชิ้นแล้ว ไม่สามารถยืมเพิ่มได้');
+        } else if (q.remainingRequests <= 0) {
+          setError('คุณมีคำขอที่รอดำเนินการครบ 2 คำขอแล้ว (จำกัดสูงสุด 2 คำขอพร้อมกัน)');
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const isCustomPurpose = selectedPurpose === 'อื่นๆ (ระบุเอง)';
   const finalPurpose = isCustomPurpose ? customPurpose.trim() : selectedPurpose;
@@ -111,14 +132,17 @@ function BorrowFormContent({
   const dueTimeLabel = timeSlot === 'morning' ? 'รอบเช้า (ภายใน 12:00 น.)' : 'รอบบ่าย (ภายใน 17:00 น.)';
   const durationCount = calculateDays(borrowDate, dueDate);
 
+  const quotaLimit = quota ? quota.remainingItems : 3;
+  const effectiveMaxQty = Math.max(0, Math.min(maxQty, quotaLimit));
+
   // ลดจำนวนอุปกรณ์ที่ต้องการยืมลง 1 ชิ้น (ต่ำสุด 1)
   const handleDecrease = () => {
     setQuantity((prev) => Math.max(1, prev - 1));
   };
 
-  // เพิ่มจำนวนอุปกรณ์ที่ต้องการยืมขึ้น 1 ชิ้น (ไม่เกินคงเหลือ)
+  // เพิ่มจำนวนอุปกรณ์ที่ต้องการยืมขึ้น 1 ชิ้น (ไม่เกินคงเหลือและไม่เกินโควตา)
   const handleIncrease = () => {
-    setQuantity((prev) => Math.min(maxQty, prev + 1));
+    setQuantity((prev) => Math.min(effectiveMaxQty, prev + 1));
   };
 
   // ตรวจสอบข้อมูลฟอร์มและส่งคำขอยืมอุปกรณ์ไปยัง Backend
@@ -126,12 +150,26 @@ function BorrowFormContent({
     e.preventDefault();
     setError(null);
 
-    if (maxQty < 1) {
-      setError('อุปกรณ์นี้หมดชั่วคราว ไม่สามารถทำรายการยืมได้');
+    if (quota?.hasOverdue) {
+      setError('คุณมีรายการอุปกรณ์ที่เกินกำหนดส่งคืนค้างอยู่ กรุณานำมาคืนที่เคาน์เตอร์ก่อนส่งคำขอใหม่');
       return;
     }
-    if (quantity < 1 || quantity > maxQty) {
-      setError(`กรุณาระบุจำนวนระหว่าง 1 ถึง ${maxQty} ชิ้น`);
+
+    if (quota && quota.remainingRequests <= 0) {
+      setError('คุณมีคำขอยืมที่รอดำเนินการครบ 2 คำขอแล้ว (จำกัดสูงสุดไม่เกิน 2 คำขอพร้อมกัน)');
+      return;
+    }
+
+    if (effectiveMaxQty < 1) {
+      setError(
+        quota && quota.remainingItems <= 0
+          ? 'โควตาการยืมของคุณเต็มแล้ว (สูงสุด 3 ชิ้น)'
+          : 'อุปกรณ์นี้หมดชั่วคราว ไม่สามารถทำรายการยืมได้'
+      );
+      return;
+    }
+    if (quantity < 1 || quantity > effectiveMaxQty) {
+      setError(`กรุณาระบุจำนวนระหว่าง 1 ถึง ${effectiveMaxQty} ชิ้นตามโควตาคงเหลือ`);
       return;
     }
     if (!borrowDate) {
@@ -212,6 +250,14 @@ function BorrowFormContent({
               {formatThaiDate(createdBorrow.dueDate)} • {dueTimeLabel} ({durationCount} วัน)
             </span>
           </div>
+          {createdBorrow.itemCodes && createdBorrow.itemCodes.length > 0 && (
+            <div className="flex justify-between items-center gap-2 pt-1 border-t border-gray-100">
+              <span className="text-gray-500 shrink-0">รหัสประจำชิ้น</span>
+              <span className="font-mono font-black text-emerald-800 text-right">
+                {createdBorrow.itemCodes.join(', ')}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2.5">

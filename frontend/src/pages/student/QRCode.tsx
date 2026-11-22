@@ -565,6 +565,30 @@ export default function StudentQRCode() {
               </div>
             </div>
 
+            {/* Assigned Asset / Serial Codes Card */}
+            {activeBorrow && activeBorrow.itemCodes && activeBorrow.itemCodes.length > 0 && (
+              <div className="bg-emerald-50/90 border border-emerald-200/90 rounded-2xl p-3.5 shadow-sm">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold text-emerald-900 inline-flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-emerald-600" /> รหัสประจำชิ้นที่ได้รับ (Asset Serials)
+                  </span>
+                  <span className="text-[10px] font-mono font-black text-emerald-700 bg-white border border-emerald-200 px-2 py-0.5 rounded-full">
+                    {activeBorrow.itemCodes.length} ชิ้น
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeBorrow.itemCodes.map((code) => (
+                    <span
+                      key={code}
+                      className="font-mono text-xs font-black bg-white text-emerald-950 border border-emerald-300 px-2.5 py-1 rounded-xl shadow-xs"
+                    >
+                      {code}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-center gap-2 text-[11px] font-semibold text-gray-500 pt-1">
               <ShieldCheck size={15} className="text-emerald-600" />
               QR Code ลงลายเซ็น HMAC จากเซิร์ฟเวอร์และหมดอายุอัตโนมัติป้องกันการแคปภาพใช้ซ้ำ

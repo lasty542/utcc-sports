@@ -75,3 +75,30 @@ export async function updateEquipment(
 export async function deleteEquipment(id: number): Promise<void> {
   await api.delete(`/equip/${id}`);
 }
+
+export interface SerialItem {
+  id: number;
+  equipmentId: number;
+  itemCode: string;
+  status: 'available' | 'reserved' | 'borrowed' | 'damaged';
+  borrowId: number | null;
+  createdAt: string;
+}
+
+// ดึงรหัสประจำชิ้นทั้งหมด (Serial Tracking) ของอุปกรณ์
+export async function listEquipmentItems(equipId: number): Promise<SerialItem[]> {
+  const { data } = await api.get<{ items: SerialItem[] }>(`/equip/${equipId}/items`);
+  return data.items;
+}
+
+// อัปเดตสถานะของอุปกรณ์รายชิ้น (เช่น Admin กดเปลี่ยนเป็น "ชำรุด (damaged)" หรือ "พร้อมใช้งาน (available)")
+export async function updateItemStatus(
+  itemId: number,
+  status: 'available' | 'damaged'
+): Promise<{ message: string; equipment: EquipmentItem | null }> {
+  const { data } = await api.patch<{ message: string; equipment: EquipmentItem | null }>(
+    `/equip/items/${itemId}/status`,
+    { status }
+  );
+  return data;
+}

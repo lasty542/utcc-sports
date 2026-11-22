@@ -273,8 +273,20 @@ export default function AdminBorrowLogs() {
                         </td>
                         <td className="py-3.5 px-4">
                           <p className="font-bold text-emerald-950">{item.equipment}</p>
+                          {item.itemCodes && item.itemCodes.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {item.itemCodes.map((code) => (
+                                <span
+                                  key={code}
+                                  className="font-mono text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 px-1.5 py-0.5 rounded"
+                                >
+                                  {code}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {item.purpose && (
-                            <p className="text-[10px] text-gray-400 truncate max-w-[180px]">
+                            <p className="text-[10px] text-gray-400 truncate max-w-[180px] mt-0.5">
                               {item.purpose}
                             </p>
                           )}

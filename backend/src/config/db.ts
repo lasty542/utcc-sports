@@ -88,14 +88,68 @@ export async function initDatabase(): Promise<void> {
 
     ALTER TABLE borrows DROP CONSTRAINT IF EXISTS borrows_status_check;
     ALTER TABLE borrows ADD CONSTRAINT borrows_status_check CHECK (status IN ('pending', 'approved', 'borrowing', 'borrowed', 'returned'));
+    ALTER TABLE borrows ADD COLUMN IF NOT EXISTS item_codes TEXT[];
+
+    CREATE TABLE IF NOT EXISTS equipment_items (
+      id SERIAL PRIMARY KEY,
+      equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+      item_code VARCHAR(50) NOT NULL UNIQUE,
+      status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'reserved', 'borrowed', 'damaged')),
+      borrow_id INTEGER REFERENCES borrows(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
 
     CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
     CREATE INDEX IF NOT EXISTS idx_equipment_category ON equipment (category);
     CREATE INDEX IF NOT EXISTS idx_borrows_user_id ON borrows (user_id);
     CREATE INDEX IF NOT EXISTS idx_borrows_status ON borrows (status);
+    CREATE INDEX IF NOT EXISTS idx_equipment_items_equip_id ON equipment_items (equipment_id);
+    CREATE INDEX IF NOT EXISTS idx_equipment_items_status ON equipment_items (status);
+    CREATE INDEX IF NOT EXISTS idx_equipment_items_borrow_id ON equipment_items (borrow_id);
   `);
 
   await seedInitialData();
+  await syncEquipmentItems();
+}
+
+// สร้างรหัสประจำชิ้น (Individual Asset / Serial Tracking) ให้สอดคล้องกับจำนวนอุปกรณ์
+async function syncEquipmentItems(): Promise<void> {
+  try {
+    const equips = await pool.query<{ id: number; total_qty: number }>(
+      'SELECT id, total_qty FROM equipment'
+    );
+    for (const eq of equips.rows) {
+      const existing = await pool.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1',
+        [eq.id]
+      );
+      const currentCount = existing.rows[0]?.count ?? 0;
+      if (currentCount < eq.total_qty) {
+        for (let i = 1; i <= eq.total_qty; i++) {
+          const itemCode = `EQ-${String(eq.id).padStart(3, '0')}-${String(i).padStart(2, '0')}`;
+          await pool.query(
+            `INSERT INTO equipment_items (equipment_id, item_code, status)
+             VALUES ($1, $2, 'available')
+             ON CONFLICT (item_code) DO NOTHING`,
+            [eq.id, itemCode]
+          );
+        }
+      }
+    }
+
+    // คำนวณจำนวนคงเหลือ (available_qty) จากรายการชิ้นที่สถานะ available
+    await pool.query(`
+      UPDATE equipment e
+      SET available_qty = (
+        SELECT COUNT(*)::int
+        FROM equipment_items ei
+        WHERE ei.equipment_id = e.id AND ei.status = 'available'
+      )
+    `);
+    console.log('Synchronized equipment items serials successfully.');
+  } catch (error) {
+    console.error('Failed to sync equipment items:', error);
+  }
 }
 
 // เพิ่มบัญชี Admin/นักศึกษาตัวอย่าง และรายการอุปกรณ์กีฬาเริ่มต้นหากยังไม่มีข้อมูล

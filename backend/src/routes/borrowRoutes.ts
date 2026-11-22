@@ -7,6 +7,7 @@ import {
   createBorrow,
   deleteBorrow,
   getQrToken,
+  getUserQuota,
   listBorrows,
   returnBorrow,
   verifyScan,
@@ -17,6 +18,7 @@ const router = Router();
 
 router.use(authMiddleware);
 router.get('/', listBorrows);
+router.get('/quota', getUserQuota);
 router.get('/qr-token', getQrToken);
 router.post('/', createBorrow);
 router.post('/:id/pickup', confirmPickup);

@@ -410,6 +410,11 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
                                   <p className="text-xs font-black text-slate-900 truncate">
                                     REQ-{String(item.id).padStart(4, '0')} • {item.equipment} ({item.qty})
                                   </p>
+                                  {item.itemCodes && item.itemCodes.length > 0 && (
+                                    <p className="font-mono text-[10px] font-bold text-emerald-800 truncate">
+                                      รหัสชิ้น: {item.itemCodes.join(', ')}
+                                    </p>
+                                  )}
                                   <p className="text-[11px] text-slate-500 truncate">
                                     {item.userName} ({item.studentId})
                                   </p>
