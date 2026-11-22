@@ -100,45 +100,35 @@ export async function initDatabase(): Promise<void> {
 
 // เพิ่มบัญชี Admin/นักศึกษาตัวอย่าง และรายการอุปกรณ์กีฬาเริ่มต้นหากยังไม่มีข้อมูล
 async function seedInitialData(): Promise<void> {
-  // 1. สร้าง/อัปเดตบัญชี Admin เริ่มต้น (admin@utcc.ac.th / admin1234)
-  const adminPasswordHash = await bcrypt.hash('admin1234', 10);
-  await pool.query(
-    `INSERT INTO users (student_id, name, email, password_hash, role)
-     VALUES ('admin', 'เจ้าหน้าที่ผู้ดูแลระบบ', 'admin@utcc.ac.th', $1, 'admin')
-     ON CONFLICT (student_id) DO UPDATE 
-     SET password_hash = EXCLUDED.password_hash,
-         email = EXCLUDED.email,
-         role = 'admin'`,
-    [adminPasswordHash]
+  // 1. สร้างบัญชี Admin เริ่มต้น (admin@utcc.ac.th / admin1234) เฉพาะกรณีที่ยังไม่มีในระบบ
+  const adminExists = await pool.query<{ id: number }>(
+    `SELECT id FROM users WHERE student_id = 'admin' OR LOWER(email) = 'admin@utcc.ac.th' LIMIT 1`
   );
-  // ตรวจสอบและอัปเดตบัญชีอื่นที่ใช้อีเมล admin@utcc.ac.th ให้รหัสผ่านถูกต้องด้วย
-  await pool.query(
-    `UPDATE users 
-     SET password_hash = $1, role = 'admin' 
-     WHERE LOWER(email) = 'admin@utcc.ac.th' AND student_id != 'admin'`,
-    [adminPasswordHash]
-  );
-  console.log('Seeded/Updated admin account: admin (admin@utcc.ac.th)');
+  if (adminExists.rows.length === 0) {
+    const adminPasswordHash = await bcrypt.hash('admin1234', 10);
+    await pool.query(
+      `INSERT INTO users (student_id, name, email, password_hash, role)
+       VALUES ('admin', 'เจ้าหน้าที่ผู้ดูแลระบบ', 'admin@utcc.ac.th', $1, 'admin')
+       ON CONFLICT (student_id) DO NOTHING`,
+      [adminPasswordHash]
+    );
+    console.log('Seeded initial admin account: admin (admin@utcc.ac.th)');
+  }
 
-  // 2. สร้าง/อัปเดตบัญชีนักศึกษาตัวอย่าง (2410511101055 / 123456)
-  const studentHash = await bcrypt.hash('123456', 10);
-  await pool.query(
-    `INSERT INTO users (student_id, name, email, password_hash, role)
-     VALUES ('2410511101055', 'นักศึกษา ทดสอบ', '2410511101055@utcc.ac.th', $1, 'student')
-     ON CONFLICT (student_id) DO UPDATE 
-     SET password_hash = EXCLUDED.password_hash,
-         email = EXCLUDED.email,
-         role = 'student'`,
-    [studentHash]
+  // 2. สร้างบัญชีนักศึกษาเริ่มต้น เฉพาะกรณีที่ยังไม่มีในระบบ (ไม่ทับรหัสผ่านของผู้ใช้เดิม)
+  const studentExists = await pool.query<{ id: number }>(
+    `SELECT id FROM users WHERE student_id = '2410511101055' LIMIT 1`
   );
-  // เผื่อมีบัญชีเดิมที่ใช้อีเมลหรือ student_id นี้
-  await pool.query(
-    `UPDATE users 
-     SET password_hash = $1 
-     WHERE student_id = '2410511101055' OR LOWER(email) = '2410511101055@utcc.ac.th'`,
-    [studentHash]
-  );
-  console.log('Seeded/Updated student account: 2410511101055 (2410511101055@utcc.ac.th)');
+  if (studentExists.rows.length === 0) {
+    const studentHash = await bcrypt.hash('123456', 10);
+    await pool.query(
+      `INSERT INTO users (student_id, name, email, password_hash, role)
+       VALUES ('2410511101055', 'นักศึกษา ทดสอบ', '2410511101055@utcc.ac.th', $1, 'student')
+       ON CONFLICT (student_id) DO NOTHING`,
+      [studentHash]
+    );
+    console.log('Seeded initial student account: 2410511101055 (2410511101055@utcc.ac.th)');
+  }
 
   // 3. สร้างรายการอุปกรณ์กีฬาเริ่มต้นหากตาราง equipment ยังว่างอยู่
   const equipCount = await pool.query<{ count: number }>(
