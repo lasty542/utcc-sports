@@ -1,0 +1,230 @@
+/**
+ * ตัวควบคุม (Controller) จัดการข้อมูลคลังอุปกรณ์กีฬา (ดึงรายการ, ดูรายละเอียด, เพิ่ม, แก้ไข, ลบ)
+ */
+import type { Request, Response } from 'express';
+import { pool } from '../config/db';
+import { readQuantity, readString } from '../utils';
+
+interface EquipmentRow {
+  id: number;
+  name: string;
+  category: string | null;
+  description: string | null;
+  total_qty: number;
+  available_qty: number;
+  image: string | null;
+  icon: string | null;
+  status: string;
+}
+
+// แปลงแถวข้อมูลอุปกรณ์จาก PostgreSQL ให้เป็นรูปแบบ JSON ที่ Frontend ใช้งาน
+function toEquipment(row: EquipmentRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    description: row.description,
+    desc: row.description,
+    total: row.total_qty,
+    available: row.available_qty,
+    totalQty: row.total_qty,
+    availableQty: row.available_qty,
+    image: row.image,
+    icon: row.icon,
+    status: row.status,
+  };
+}
+
+// คำนวณข้อความสถานะอุปกรณ์จากจำนวนทั้งหมดและจำนวนคงเหลือ
+function stockStatus(totalQty: number, availableQty: number, explicit?: string): string {
+  if (explicit) {
+    return explicit;
+  }
+  return availableQty === totalQty ? 'พร้อมใช้งาน' : 'ใช้งานอยู่';
+}
+
+const EQUIPMENT_COLUMNS = `
+  id, name, category, description, total_qty, available_qty, image, icon, status
+`;
+
+// ดึงรายการอุปกรณ์กีฬาทั้งหมด พร้อมกรองตามหมวดหมู่และคำค้นหา
+export async function listEquipment(req: Request, res: Response): Promise<void> {
+  const category = readString(req.query.category);
+  const search = readString(req.query.search);
+
+  try {
+    const result = await pool.query<EquipmentRow>(
+      `SELECT ${EQUIPMENT_COLUMNS}
+       FROM equipment
+       WHERE ($1::text = '' OR category = $1)
+         AND ($2::text = '' OR name ILIKE '%' || $2 || '%')
+       ORDER BY id DESC`,
+      [category, search]
+    );
+
+    res.json({ equipment: result.rows.map(toEquipment) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถโหลดรายการอุปกรณ์ได้' });
+  }
+}
+
+// ดึงข้อมูลรายละเอียดอุปกรณ์กีฬา 1 รายการตามรหัส ID
+export async function getEquipment(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ message: 'รหัสอุปกรณ์ไม่ถูกต้อง' });
+    return;
+  }
+
+  try {
+    const result = await pool.query<EquipmentRow>(
+      `SELECT ${EQUIPMENT_COLUMNS} FROM equipment WHERE id = $1`,
+      [id]
+    );
+    const item = result.rows[0];
+
+    if (!item) {
+      res.status(404).json({ message: 'ไม่พบอุปกรณ์' });
+      return;
+    }
+
+    res.json({ equipment: toEquipment(item) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถโหลดอุปกรณ์ได้' });
+  }
+}
+
+// เพิ่มรายการอุปกรณ์กีฬาใหม่เข้าสู่คลัง (เฉพาะ Admin)
+export async function createEquipment(req: Request, res: Response): Promise<void> {
+  const name = readString(req.body?.name);
+  const category = readString(req.body?.category);
+  const description = readString(req.body?.description ?? req.body?.desc);
+  const image = readString(req.body?.image);
+  const icon = readString(req.body?.icon);
+  const totalQty = readQuantity(req.body?.totalQty ?? req.body?.total);
+  const availableQty = readQuantity(req.body?.availableQty ?? req.body?.available ?? totalQty);
+
+  if (!name || totalQty === null || availableQty === null || availableQty > totalQty) {
+    res.status(400).json({ message: 'กรอกชื่ออุปกรณ์และจำนวนให้ถูกต้อง' });
+    return;
+  }
+
+  try {
+    const result = await pool.query<EquipmentRow>(
+      `INSERT INTO equipment
+        (name, category, description, total_qty, available_qty, image, icon, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${EQUIPMENT_COLUMNS}`,
+      [
+        name,
+        category || null,
+        description || null,
+        totalQty,
+        availableQty,
+        image || null,
+        icon || null,
+        stockStatus(totalQty, availableQty, readString(req.body?.status) || undefined),
+      ]
+    );
+
+    const item = result.rows[0];
+    if (!item) {
+      res.status(500).json({ message: 'เพิ่มอุปกรณ์ไม่สำเร็จ' });
+      return;
+    }
+
+    res.status(201).json({ equipment: toEquipment(item) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถเพิ่มอุปกรณ์ได้' });
+  }
+}
+
+// แก้ไขรายละเอียดและจำนวนอุปกรณ์กีฬาตามรหัส ID (เฉพาะ Admin)
+export async function updateEquipment(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ message: 'รหัสอุปกรณ์ไม่ถูกต้อง' });
+    return;
+  }
+
+  const name = readString(req.body?.name);
+  const category = readString(req.body?.category);
+  const description = readString(req.body?.description ?? req.body?.desc);
+  const image = readString(req.body?.image);
+  const icon = readString(req.body?.icon);
+  const totalQty = readQuantity(req.body?.totalQty ?? req.body?.total);
+  const availableQty = readQuantity(req.body?.availableQty ?? req.body?.available);
+
+  if (!name || totalQty === null || availableQty === null || availableQty > totalQty) {
+    res.status(400).json({ message: 'กรอกชื่ออุปกรณ์และจำนวนให้ถูกต้อง' });
+    return;
+  }
+
+  try {
+    const result = await pool.query<EquipmentRow>(
+      `UPDATE equipment
+       SET name = $1,
+           category = $2,
+           description = $3,
+           total_qty = $4,
+           available_qty = $5,
+           image = $6,
+           icon = $7,
+           status = $8
+       WHERE id = $9
+       RETURNING ${EQUIPMENT_COLUMNS}`,
+      [
+        name,
+        category || null,
+        description || null,
+        totalQty,
+        availableQty,
+        image || null,
+        icon || null,
+        stockStatus(totalQty, availableQty, readString(req.body?.status) || undefined),
+        id,
+      ]
+    );
+
+    const item = result.rows[0];
+    if (!item) {
+      res.status(404).json({ message: 'ไม่พบอุปกรณ์' });
+      return;
+    }
+
+    res.json({ equipment: toEquipment(item) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถแก้ไขอุปกรณ์ได้' });
+  }
+}
+
+// ลบรายการอุปกรณ์กีฬาออกจากคลัง (ป้องกันการลบหากมีประวัติการยืมผูกอยู่)
+export async function deleteEquipment(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ message: 'รหัสอุปกรณ์ไม่ถูกต้อง' });
+    return;
+  }
+
+  try {
+    const result = await pool.query('DELETE FROM equipment WHERE id = $1 RETURNING id', [id]);
+    if (result.rowCount === 0) {
+      res.status(404).json({ message: 'ไม่พบอุปกรณ์' });
+      return;
+    }
+
+    res.json({ message: 'ลบอุปกรณ์แล้ว' });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23503') {
+      res.status(409).json({ message: 'ลบไม่ได้เพราะอุปกรณ์นี้มีประวัติการยืม' });
+      return;
+    }
+
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถลบอุปกรณ์ได้' });
+  }
+}
