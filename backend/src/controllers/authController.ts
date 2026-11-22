@@ -153,11 +153,11 @@ function signToken(user: UserRow): string {
   return jwt.sign(payload, secret, { expiresIn: '7d' });
 }
 
-// สมัครสมาชิกใหม่ (จำกัดให้สมัครได้เฉพาะบทบาท student เท่านั้น)
+// สมัครสมาชิกใหม่ (รองรับการผูกบัญชีเดิมจาก Google OAuth อัตโนมัติ)
 export async function register(req: Request, res: Response): Promise<void> {
-  const studentId = readString(req.body?.studentId);
-  const name = readString(req.body?.name);
-  const email = readString(req.body?.email).toLowerCase();
+  const studentId = readString(req.body?.studentId).trim();
+  const name = readString(req.body?.name).trim();
+  const email = readString(req.body?.email).trim().toLowerCase();
   const password = readString(req.body?.password);
 
   if (!studentId || !name || password.length < 6) {
@@ -173,19 +173,107 @@ export async function register(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    const emailDup = await pool.query<{ id: number }>(
-      'SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+    const passwordHash = await bcrypt.hash(password, 10);
+    const role: UserRow['role'] = 'student';
+
+    // 1. ตรวจสอบว่ามีบัญชีที่ใช้อีเมลนี้ในระบบอยู่แล้วหรือไม่
+    const emailDup = await pool.query<UserRow>(
+      `SELECT id, student_id, name, email, phone, password_hash, role, auth_provider, otp_secret, otp_enabled
+       FROM users
+       WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+       LIMIT 1`,
       [email]
     );
-    if (emailDup.rows.length > 0) {
-      res.status(409).json({ message: 'อีเมลนี้ถูกใช้งานแล้ว' });
+
+    if (emailDup.rows[0]) {
+      const existing = emailDup.rows[0];
+      const isSocial =
+        existing.auth_provider === 'google' ||
+        existing.auth_provider === 'microsoft' ||
+        existing.student_id.startsWith('go-') ||
+        existing.student_id.startsWith('ms-') ||
+        existing.student_id === 'google-demo-user';
+
+      if (isSocial) {
+        // บัญชีเดิมมาจากการล็อกอินด้วย Social/Google -> ทำการผูกรหัสนักศึกษาและรหัสผ่านเข้ากับบัญชีนี้ทันที
+        const studentConflict = await pool.query<{ id: number }>(
+          'SELECT id FROM users WHERE TRIM(student_id) = TRIM($1) AND id != $2 LIMIT 1',
+          [studentId, existing.id]
+        );
+        if (studentConflict.rows[0]) {
+          res.status(409).json({ message: 'รหัสนักศึกษานี้ถูกใช้งานโดยบัญชีอื่นแล้ว' });
+          return;
+        }
+
+        const updated = await pool.query<UserRow>(
+          `UPDATE users
+           SET student_id = $1,
+               name = $2,
+               password_hash = $3
+           WHERE id = $4
+           RETURNING id, student_id, name, email, phone, password_hash, role, auth_provider, otp_secret, otp_enabled`,
+          [studentId, name, passwordHash, existing.id]
+        );
+
+        const linkedUser = updated.rows[0];
+        res.status(200).json({
+          token: signToken(linkedUser),
+          user: toPublicUser(linkedUser),
+          message: 'ผูกบัญชี Google กับรหัสนักศึกษาและรหัสผ่านเรียบร้อยแล้ว',
+        });
+        return;
+      }
+
+      res.status(409).json({
+        message: 'อีเมลนี้ถูกใช้งานแล้ว สามารถเข้าสู่ระบบได้ทันที หรือใช้เมนูลืมรหัสผ่านเพื่อตั้งรหัสใหม่',
+      });
       return;
     }
 
-    // สมัครสมาชิกใหม่จะได้รับสิทธิ์ student เท่านั้น ส่วน admin ต้องสร้างจากฐานข้อมูลหรือระบบ
-    const role: UserRow['role'] = 'student';
-    const passwordHash = await bcrypt.hash(password, 10);
+    // 2. ตรวจสอบว่ามีบัญชีที่ใช้รหัสนักศึกษานี้อยู่แล้วหรือไม่
+    const studentDup = await pool.query<UserRow>(
+      `SELECT id, student_id, name, email, phone, password_hash, role, auth_provider, otp_secret, otp_enabled
+       FROM users
+       WHERE TRIM(student_id) = TRIM($1)
+       LIMIT 1`,
+      [studentId]
+    );
 
+    if (studentDup.rows[0]) {
+      const existing = studentDup.rows[0];
+      const isSocial =
+        existing.auth_provider === 'google' ||
+        existing.auth_provider === 'microsoft' ||
+        existing.student_id.startsWith('go-') ||
+        existing.student_id.startsWith('ms-') ||
+        existing.student_id === 'google-demo-user';
+
+      if (isSocial) {
+        const updated = await pool.query<UserRow>(
+          `UPDATE users
+           SET email = $1,
+               name = $2,
+               password_hash = $3
+           WHERE id = $4
+           RETURNING id, student_id, name, email, phone, password_hash, role, auth_provider, otp_secret, otp_enabled`,
+          [email, name, passwordHash, existing.id]
+        );
+        const linkedUser = updated.rows[0];
+        res.status(200).json({
+          token: signToken(linkedUser),
+          user: toPublicUser(linkedUser),
+          message: 'ผูกบัญชีเดิมกับอีเมลและรหัสผ่านเรียบร้อยแล้ว',
+        });
+        return;
+      }
+
+      res.status(409).json({
+        message: 'รหัสนักศึกษานี้ถูกใช้งานแล้ว หากเป็นบัญชีของคุณสามารถเข้าสู่ระบบหรือใช้เมนูลืมรหัสผ่าน',
+      });
+      return;
+    }
+
+    // 3. สร้างบัญชีใหม่ตามปกติ
     const inserted = await pool.query<UserRow>(
       `INSERT INTO users (student_id, name, email, password_hash, role, auth_provider)
        VALUES ($1, $2, $3, $4, $5, 'local')
@@ -213,7 +301,7 @@ export async function register(req: Request, res: Response): Promise<void> {
 
 // เข้าสู่ระบบด้วยรหัสนักศึกษา/บัญชีเจ้าหน้าที่ หรืออีเมล และตรวจสอบรหัสผ่าน
 export async function login(req: Request, res: Response): Promise<void> {
-  const identifier = readString(req.body?.identifier ?? req.body?.studentId);
+  const identifier = readString(req.body?.identifier ?? req.body?.studentId).trim();
   const password = readString(req.body?.password);
 
   if (!identifier || !password) {
@@ -225,9 +313,9 @@ export async function login(req: Request, res: Response): Promise<void> {
     const result = await pool.query<UserRow>(
       `SELECT id, student_id, name, email, phone, password_hash, role, auth_provider, otp_secret, otp_enabled
        FROM users
-       WHERE student_id = $1
-          OR (email IS NOT NULL AND LOWER(email) = LOWER($1))
-       ORDER BY (student_id = $1) DESC, id ASC
+       WHERE TRIM(student_id) = TRIM($1)
+          OR (email IS NOT NULL AND LOWER(TRIM(email)) = LOWER(TRIM($1)))
+       ORDER BY (TRIM(student_id) = TRIM($1)) DESC, id ASC
        LIMIT 1`,
       [identifier]
     );
@@ -243,7 +331,20 @@ export async function login(req: Request, res: Response): Promise<void> {
       typeof user.password_hash === 'string' && user.password_hash.length > 0
         ? await bcrypt.compare(password, user.password_hash)
         : false;
+
     if (!passwordMatches) {
+      if (
+        user.auth_provider === 'google' ||
+        user.auth_provider === 'microsoft' ||
+        user.student_id.startsWith('go-') ||
+        user.student_id.startsWith('ms-')
+      ) {
+        res.status(401).json({
+          message:
+            'รหัสผ่านไม่ถูกต้อง (หากคุณสมัครผ่าน Google สามารถเข้าสู่ระบบด้วย Google หรือกด "ลืมรหัสผ่าน" เพื่อตั้งรหัสผ่านสำหรับล็อกอินด้วยรหัสนักศึกษาได้)',
+        });
+        return;
+      }
       res.status(401).json({ message: 'รหัสผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
       return;
     }
@@ -399,7 +500,7 @@ export async function disableOtp(req: Request, res: Response): Promise<void> {
   }
 }
 
-// เปลี่ยนรหัสผ่านใหม่โดยตรวจสอบรหัสผ่านเดิมก่อนอัปเดต
+// เปลี่ยนรหัสผ่านใหม่ (สำหรับบัญชี Google/Social จะอนุญาตให้ตั้งรหัสผ่านใหม่ได้ทันที)
 export async function changePassword(req: Request, res: Response): Promise<void> {
   if (!req.user) {
     res.status(401).json({ message: 'ไม่พบโทเคนสำหรับยืนยันตัวตน' });
@@ -409,19 +510,14 @@ export async function changePassword(req: Request, res: Response): Promise<void>
   const currentPassword = readString(req.body?.currentPassword);
   const newPassword = readString(req.body?.newPassword);
 
-  if (!currentPassword || newPassword.length < 6) {
-    res.status(400).json({ message: 'กรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร' });
-    return;
-  }
-
-  if (currentPassword === newPassword) {
-    res.status(400).json({ message: 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน' });
+  if (!newPassword || newPassword.length < 6) {
+    res.status(400).json({ message: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' });
     return;
   }
 
   try {
-    const result = await pool.query<{ id: number; password_hash: string }>(
-      'SELECT id, password_hash FROM users WHERE id = $1',
+    const result = await pool.query<{ id: number; password_hash: string; auth_provider: string }>(
+      'SELECT id, password_hash, auth_provider FROM users WHERE id = $1',
       [req.user.id]
     );
     const user = result.rows[0];
@@ -430,30 +526,54 @@ export async function changePassword(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const matches = await bcrypt.compare(currentPassword, user.password_hash);
-    if (!matches) {
-      res.status(401).json({ message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
-      return;
+    const isSocial =
+      user.auth_provider === 'google' ||
+      user.auth_provider === 'microsoft' ||
+      req.user.studentId.startsWith('go-') ||
+      req.user.studentId.startsWith('ms-') ||
+      req.user.studentId === 'google-demo-user';
+
+    // ถ้าเป็นบัญชี Local ดั้งเดิม ต้องตรวจสอบรหัสผ่านปัจจุบัน
+    if (!isSocial) {
+      if (!currentPassword) {
+        res.status(400).json({ message: 'กรุณากรอกรหัสผ่านปัจจุบัน' });
+        return;
+      }
+      const matches = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!matches) {
+        res.status(401).json({ message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
+        return;
+      }
+      if (currentPassword === newPassword) {
+        res.status(400).json({ message: 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน' });
+        return;
+      }
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
     await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
-    res.json({ message: 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว' });
+    res.json({
+      message: isSocial
+        ? 'ตั้งรหัสผ่านสำเร็จ สามารถนำรหัสนักศึกษาและรหัสผ่านนี้ไปเข้าสู่ระบบได้ทันที'
+        : 'เปลี่ยนรหัสผ่านเรียบร้อยแล้ว',
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'ไม่สามารถเปลี่ยนรหัสผ่านได้' });
   }
 }
 
-// อัปเดตข้อมูลติดต่อ (อีเมลและเบอร์โทร) ของผู้ใช้ที่ล็อกอินอยู่
+// อัปเดตข้อมูลโปรไฟล์ (อีเมล, เบอร์โทร, ผูกรหัสนักศึกษาจริง และตั้งรหัสผ่าน)
 export async function updateProfile(req: Request, res: Response): Promise<void> {
   if (!req.user) {
     res.status(401).json({ message: 'ไม่พบโทเคนสำหรับยืนยันตัวตน' });
     return;
   }
 
-  const email = readString(req.body?.email);
-  const phone = readString(req.body?.phone);
+  const email = readString(req.body?.email).trim().toLowerCase();
+  const phone = readString(req.body?.phone).trim();
+  const studentId = readString(req.body?.studentId).trim();
+  const newPassword = readString(req.body?.newPassword);
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     res.status(400).json({ message: 'รูปแบบอีเมลไม่ถูกต้อง' });
@@ -461,12 +581,44 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
   }
 
   try {
+    // 1. หากมีการเปลี่ยน/กรอกรหัสนักศึกษา ให้ตรวจสอบว่าไม่ซ้ำกับบัญชีของคนอื่น
+    if (studentId) {
+      const conflict = await pool.query<{ id: number }>(
+        'SELECT id FROM users WHERE TRIM(student_id) = TRIM($1) AND id != $2 LIMIT 1',
+        [studentId, req.user.id]
+      );
+      if (conflict.rows[0]) {
+        res.status(409).json({ message: 'รหัสนักศึกษานี้ถูกใช้งานโดยบัญชีอื่นแล้ว' });
+        return;
+      }
+    }
+
+    // 2. ประกอบคำสั่ง SQL แบบไดนามิกตามข้อมูลที่ส่งมา
+    const queryParams: unknown[] = [email || null, phone || null];
+    let queryIdx = 3;
+    let updateFields = 'email = $1, phone = $2';
+
+    if (studentId) {
+      updateFields += `, student_id = $${queryIdx}`;
+      queryParams.push(studentId);
+      queryIdx++;
+    }
+
+    if (newPassword && newPassword.length >= 6) {
+      const hash = await bcrypt.hash(newPassword, 10);
+      updateFields += `, password_hash = $${queryIdx}`;
+      queryParams.push(hash);
+      queryIdx++;
+    }
+
+    queryParams.push(req.user.id);
+
     const updated = await pool.query<UserRow>(
       `UPDATE users
-       SET email = $1, phone = $2
-       WHERE id = $3
+       SET ${updateFields}
+       WHERE id = $${queryIdx}
        RETURNING id, student_id, name, email, phone, password_hash, role, auth_provider, otp_secret, otp_enabled`,
-      [email || null, phone || null, req.user.id]
+      queryParams
     );
 
     const user = updated.rows[0];
@@ -620,8 +772,8 @@ export async function verifyResetIdentity(req: Request, res: Response): Promise<
   const email = readString(req.body?.email).trim().toLowerCase();
   const studentId = readString(req.body?.studentId).trim();
 
-  if (!email || !studentId) {
-    res.status(400).json({ message: 'กรุณากรอกทั้งอีเมลและรหัสนักศึกษา/ชื่อผู้ใช้' });
+  if (!email && !studentId) {
+    res.status(400).json({ message: 'กรุณากรอกอีเมลหรือรหัสนักศึกษา' });
     return;
   }
 
@@ -629,10 +781,10 @@ export async function verifyResetIdentity(req: Request, res: Response): Promise<
     // 1. ค้นหาผู้ใช้ที่ตรงทั้งสองเงื่อนไขพร้อมกัน (เปรียบเทียบแบบ TRIM และ LOWER)
     const exactMatch = await pool.query<{ id: number; name: string; student_id: string; email: string }>(
       `SELECT id, name, student_id, email FROM users
-       WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+       WHERE (LOWER(TRIM(email)) = LOWER(TRIM($1)) OR TRIM(student_id) = TRIM($1))
          AND (TRIM(student_id) = TRIM($2) OR LOWER(TRIM(email)) = LOWER(TRIM($2)))
        LIMIT 1`,
-      [email, studentId]
+      [email || studentId, studentId || email]
     );
 
     if (exactMatch.rows[0]) {
@@ -659,36 +811,99 @@ export async function verifyResetIdentity(req: Request, res: Response): Promise<
       return;
     }
 
-    // 2. ถ้าไม่พบผู้ใช้ที่ตรงทั้งคู่ ให้ตรวจสอบแยกเงื่อนไขเพื่อแจ้งเตือนว่าผิดที่ช่องไหน
-    const matchByStudentId = await pool.query<{ id: number; name: string; email: string; student_id: string }>(
-      `SELECT id, name, email, student_id FROM users
-       WHERE TRIM(student_id) = TRIM($1)
-       LIMIT 1`,
-      [studentId]
-    );
+    // 2. ตรวจสอบค้นหาด้วยอีเมล
+    if (email) {
+      const matchByEmail = await pool.query<{
+        id: number;
+        name: string;
+        email: string;
+        student_id: string;
+        auth_provider: string;
+      }>(
+        `SELECT id, name, email, student_id, auth_provider FROM users
+         WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+         LIMIT 1`,
+        [email]
+      );
 
-    if (matchByStudentId.rows[0]) {
-      res.status(400).json({
-        message: 'อีเมลไม่ตรงกับรหัสนักศึกษานี้ (กรุณาใช้อีเมลที่ลงทะเบียนไว้กับรหัสนี้)',
-      });
-      return;
+      if (matchByEmail.rows[0]) {
+        const u = matchByEmail.rows[0];
+        const isSocial =
+          u.auth_provider === 'google' ||
+          u.auth_provider === 'microsoft' ||
+          u.student_id.startsWith('go-') ||
+          u.student_id.startsWith('ms-');
+
+        const rawToken = randomBytes(32).toString('hex');
+        const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+        // หากเป็นบัญชี Google/Social และผู้ใช้ระบุรหัสนักศึกษาจริงมาด้วย ให้อัปเดตผูกรหัสนักศึกษาจริงให้อัตโนมัติ
+        if (studentId && !studentId.startsWith('go-') && studentId !== email) {
+          await pool.query(
+            `UPDATE users
+             SET student_id = $1,
+                 reset_token_hash = $2,
+                 reset_token_expires = NOW() + INTERVAL '15 minutes'
+             WHERE id = $3`,
+            [studentId, tokenHash, u.id]
+          );
+        } else {
+          await pool.query(
+            `UPDATE users
+             SET reset_token_hash = $1,
+                 reset_token_expires = NOW() + INTERVAL '15 minutes'
+             WHERE id = $2`,
+            [tokenHash, u.id]
+          );
+        }
+
+        res.json({
+          success: true,
+          token: rawToken,
+          name: u.name,
+          studentId: studentId && !studentId.startsWith('go-') ? studentId : u.student_id,
+          email: u.email,
+          message: `ยืนยันตัวตนสำเร็จ (${u.name}) กรุณาตั้งรหัสผ่านใหม่`,
+        });
+        return;
+      }
     }
 
-    const matchByEmail = await pool.query<{ id: number; name: string; email: string; student_id: string }>(
-      `SELECT id, name, email, student_id FROM users
-       WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-       LIMIT 1`,
-      [email]
-    );
+    // 3. ตรวจสอบค้นหาด้วยรหัสนักศึกษา
+    if (studentId) {
+      const matchByStudentId = await pool.query<{ id: number; name: string; email: string; student_id: string }>(
+        `SELECT id, name, email, student_id FROM users
+         WHERE TRIM(student_id) = TRIM($1)
+         LIMIT 1`,
+        [studentId]
+      );
 
-    if (matchByEmail.rows[0]) {
-      res.status(400).json({
-        message: 'รหัสนักศึกษาไม่ตรงกับอีเมลนี้ (กรุณาตรวจสอบรหัสนักศึกษาอีกครั้ง)',
-      });
-      return;
+      if (matchByStudentId.rows[0]) {
+        const user = matchByStudentId.rows[0];
+        const rawToken = randomBytes(32).toString('hex');
+        const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+        await pool.query(
+          `UPDATE users
+           SET reset_token_hash = $1,
+               reset_token_expires = NOW() + INTERVAL '15 minutes'
+           WHERE id = $2`,
+          [tokenHash, user.id]
+        );
+
+        res.json({
+          success: true,
+          token: rawToken,
+          name: user.name,
+          studentId: user.student_id,
+          email: user.email,
+          message: `ยืนยันตัวตนสำเร็จ (${user.name}) กรุณาตั้งรหัสผ่านใหม่`,
+        });
+        return;
+      }
     }
 
-    // 3. ถ้าไม่พบทั้งรหัสนักศึกษาและอีเมล
+    // 4. ถ้าไม่พบทั้งรหัสนักศึกษาและอีเมล
     res.status(404).json({
       message: 'ไม่พบข้อมูลรหัสนักศึกษาหรืออีเมลนี้ในระบบ กรุณาตรวจสอบข้อมูลหรือสมัครสมาชิกใหม่',
     });
@@ -726,11 +941,11 @@ export async function instantResetPassword(req: Request, res: Response): Promise
       }
     }
 
-    if (!userId && email && studentId) {
+    if (!userId && (email || studentId)) {
       const found = await pool.query<{ id: number }>(
         `SELECT id FROM users
-         WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-           AND (TRIM(student_id) = TRIM($2) OR LOWER(TRIM(email)) = LOWER(TRIM($2)))
+         WHERE (LOWER(TRIM(email)) = LOWER(TRIM($1)) AND $1 != '')
+            OR (TRIM(student_id) = TRIM($2) AND $2 != '')
          LIMIT 1`,
         [email, studentId]
       );
