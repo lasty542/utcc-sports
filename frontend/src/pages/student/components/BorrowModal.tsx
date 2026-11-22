@@ -26,6 +26,7 @@ import {
   type BorrowItem,
   type UserQuotaResponse,
 } from '../../../services/borrowService';
+import { notifyBorrowUpdated } from '../../../utils/realtime';
 
 export interface BorrowModalProps {
   equipment: EquipmentItem | null;
@@ -201,6 +202,7 @@ function BorrowFormContent({
       });
       setCreatedBorrow(borrow);
       onSuccess();
+      notifyBorrowUpdated();
     } catch (err) {
       if (axios.isAxiosError<{ message?: string }>(err)) {
         setError(err.response?.data?.message || 'ไม่สามารถบันทึกการยืมได้ กรุณาลองใหม่');

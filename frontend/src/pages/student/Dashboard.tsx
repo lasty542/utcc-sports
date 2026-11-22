@@ -27,6 +27,7 @@ import SettingsModal from '../../components/SettingsModal';
 import BorrowModal from './components/BorrowModal';
 import { formatEquipCode, listEquipment, type EquipmentItem } from '../../services/equipService';
 import { getUserQuota, type UserQuotaResponse } from '../../services/borrowService';
+import { subscribeBorrowUpdated } from '../../utils/realtime';
 
 const SCENIC_MEADOW_BG =
   'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1920&auto=format&fit=crop';
@@ -156,10 +157,16 @@ export default function StudentDashboard() {
 
     void fetchQuota();
 
+    // เชื่อมต่อการแจ้งเตือน Real-time เมื่อสถานะโควตาหรือสต็อกเปลี่ยน
+    const unsubscribe = subscribeBorrowUpdated(() => {
+      void reloadEquipments();
+    });
+
     return () => {
       active = false;
+      unsubscribe();
     };
-  }, [fetchQuota]);
+  }, [fetchQuota, reloadEquipments]);
 
   // Real-time Auto-polling ทุกๆ 4 วินาที เพื่ออัปเดตจำนวนสต็อกคงเหลือและโควตาเมื่อมีคนยืมหรือคืน
   useEffect(() => {

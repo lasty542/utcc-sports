@@ -31,6 +31,7 @@ import {
   type BorrowItem,
   type QrTokenResponse,
 } from '../../services/borrowService';
+import { notifyBorrowUpdated, subscribeBorrowUpdated } from '../../utils/realtime';
 
 // แปลงรหัสคำขอยืมตัวเลขเป็นรูปแบบ REQ-0001
 function formatRequestCode(id: number): string {
@@ -137,8 +138,17 @@ export default function StudentQRCode() {
       }
     }, 3500);
 
-    return () => clearInterval(pollInterval);
-  }, []);
+    // เชื่อมต่อระบบ Real-time ข้ามแท็บและข้ามหน้าจอ (เช่น เมื่อแอดมินสแกน QR หรือเปลี่ยนสถานะ)
+    const unsubscribe = subscribeBorrowUpdated(() => {
+      void fetchToken(selectedId);
+      listBorrows().then(setBorrows).catch(() => {});
+    });
+
+    return () => {
+      clearInterval(pollInterval);
+      unsubscribe();
+    };
+  }, [fetchToken, selectedId]);
 
   // โหลด Dynamic QR Token จาก Backend เมื่อเปิดหน้าหรือเปลี่ยนรายการ
   useEffect(() => {
@@ -217,8 +227,14 @@ export default function StudentQRCode() {
       setTokenData((prev) => (prev ? { ...prev, borrow: res.borrow } : prev));
       setPickupMessage(res.message);
       void fetchToken(activeBorrow.id);
-    } catch {
-      setPickupError('ไม่สามารถยืนยันรับอุปกรณ์ได้ กรุณาลองใหม่หรือติดต่อเจ้าหน้าที่');
+      notifyBorrowUpdated();
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'ไม่สามารถยืนยันรับอุปกรณ์ได้ กรุณาลองใหม่หรือติดต่อเจ้าหน้าที่';
+      setPickupError(msg);
     } finally {
       setIsConfirmingPickup(false);
     }
@@ -237,8 +253,14 @@ export default function StudentQRCode() {
       setTokenData((prev) => (prev ? { ...prev, borrow: res.borrow } : prev));
       setPickupMessage(res.message || 'บันทึกการส่งคืนอุปกรณ์สำเร็จ');
       void fetchToken(activeBorrow.id);
-    } catch {
-      setPickupError('ไม่สามารถบันทึกการคืนได้ กรุณาลองใหม่หรือติดต่อเจ้าหน้าที่');
+      notifyBorrowUpdated();
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'ไม่สามารถบันทึกการคืนได้ กรุณาลองใหม่หรือติดต่อเจ้าหน้าที่';
+      setPickupError(msg);
     } finally {
       setIsConfirmingReturn(false);
     }

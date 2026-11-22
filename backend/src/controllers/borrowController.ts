@@ -460,10 +460,12 @@ export async function confirmPickup(req: Request, res: Response): Promise<void> 
       id: number;
       user_id: number;
       status: BorrowStatusDb;
+      owner_student_id?: string;
     }>(
-      `SELECT id, user_id, status
-       FROM borrows
-       WHERE id = $1
+      `SELECT b.id, b.user_id, b.status, u.student_id AS owner_student_id
+       FROM borrows b
+       JOIN users u ON u.id = b.user_id
+       WHERE b.id = $1
        FOR UPDATE`,
       [id]
     );
@@ -475,16 +477,22 @@ export async function confirmPickup(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (req.user.role !== 'admin' && borrow.user_id !== req.user.id) {
+    const isOwner =
+      Number(borrow.user_id) === Number(req.user.id) ||
+      (Boolean(borrow.owner_student_id) &&
+        String(borrow.owner_student_id).trim() === String(req.user.studentId).trim());
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isAdmin && !isOwner) {
       await client.query('ROLLBACK');
-      res.status(403).json({ message: 'ไม่มีสิทธิ์ยืนยันรายการนี้' });
+      res.status(403).json({ message: 'ไม่มีสิทธิ์ยืนยันรายการนี้ (เฉพาะเจ้าของคำขอหรือแอดมินเท่านั้น)' });
       return;
     }
 
     if (borrow.status !== 'pending' && borrow.status !== 'approved') {
       await client.query('ROLLBACK');
       res.status(409).json({
-        message: borrow.status === 'returned' ? 'รายการนี้คืนแล้ว' : 'รายการนี้ยืนยันรับอุปกรณ์แล้ว',
+        message: borrow.status === 'returned' ? 'รายการนี้คืนแล้ว' : 'รายการนี้ยืนยันรับอุปกรณ์แล้ว (กำลังยืม)',
       });
       return;
     }
@@ -506,7 +514,7 @@ export async function confirmPickup(req: Request, res: Response): Promise<void> 
     }
 
     res.json({
-      message: `ยืนยันรับอุปกรณ์ "${row.equipment}" เรียบร้อยแล้ว`,
+      message: `ยืนยันรับอุปกรณ์ "${row.equipment}" เรียบร้อยแล้ว (สถานะ: กำลังยืม)`,
       borrow: toBorrow(row),
     });
   } catch (error: any) {
@@ -515,6 +523,7 @@ export async function confirmPickup(req: Request, res: Response): Promise<void> 
     res.status(500).json({
       message: 'ไม่สามารถยืนยันรับอุปกรณ์ได้',
       error: error?.message || String(error),
+      code: error?.code,
       detail: error?.detail,
     });
   } finally {
@@ -546,10 +555,13 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       equipment_id: number;
       quantity: number;
       status: BorrowStatusDb;
+      item_codes: string[] | null;
+      owner_student_id?: string;
     }>(
-      `SELECT id, user_id, equipment_id, quantity, status
-       FROM borrows
-       WHERE id = $1
+      `SELECT b.id, b.user_id, b.equipment_id, b.quantity, b.status, b.item_codes, u.student_id AS owner_student_id
+       FROM borrows b
+       JOIN users u ON u.id = b.user_id
+       WHERE b.id = $1
        FOR UPDATE`,
       [id]
     );
@@ -561,35 +573,81 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    if (req.user.role !== 'admin' && borrow.user_id !== req.user.id) {
+    const isOwner =
+      Number(borrow.user_id) === Number(req.user.id) ||
+      (Boolean(borrow.owner_student_id) &&
+        String(borrow.owner_student_id).trim() === String(req.user.studentId).trim());
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isAdmin && !isOwner) {
       await client.query('ROLLBACK');
-      res.status(403).json({ message: 'ไม่มีสิทธิ์อัปเดตรายการนี้' });
+      res.status(403).json({
+        message: 'ไม่มีสิทธิ์อัปเดตรายการนี้ (เฉพาะเจ้าของคำขอหรือแอดมินเท่านั้น)',
+      });
       return;
     }
 
     if (borrow.status === 'returned') {
       await client.query('ROLLBACK');
-      res.status(409).json({ message: 'รายการนี้คืนแล้ว' });
+      res.status(409).json({ message: 'รายการนี้ได้รับการบันทึกคืนเรียบร้อยแล้ว' });
       return;
     }
 
+    // 1. อัปเดตสถานะในตาราง borrows เป็น returned
     await client.query(`UPDATE borrows SET status = 'returned' WHERE id = $1`, [borrow.id]);
+
+    // 2. ปลดล็อกรหัสประจำชิ้นใน equipment_items คืนเป็น available
+    const itemCodes = Array.isArray(borrow.item_codes) ? borrow.item_codes : [];
     await client.query(
       `UPDATE equipment_items
        SET status = 'available', borrow_id = NULL
-       WHERE borrow_id = $1 AND status != 'damaged'`,
-      [borrow.id]
+       WHERE (borrow_id = $1 OR item_code = ANY($2::text[]))
+         AND status != 'damaged'`,
+      [borrow.id, itemCodes]
     );
+
+    // 3. คืนยอด available_qty ให้ equipment
     await client.query(
       `UPDATE equipment
-       SET available_qty = (
-         SELECT COUNT(*)::int
-         FROM equipment_items
-         WHERE equipment_id = $1 AND status = 'available'
-       )
-       WHERE id = $1`,
-      [borrow.equipment_id]
+       SET available_qty = LEAST(total_qty, available_qty + $1)
+       WHERE id = $2`,
+      [borrow.quantity, borrow.equipment_id]
     );
+
+    // 4. อัปเดต sports_equipment ด้วยหากมีตารางนี้ในฐานข้อมูล
+    try {
+      await client.query(
+        `UPDATE sports_equipment
+         SET available_qty = LEAST(total_qty, available_qty + $1)
+         WHERE id = $2`,
+        [borrow.quantity, borrow.equipment_id]
+      );
+    } catch {
+      // ignore
+    }
+
+    // 5. ซิงค์ available_qty จาก equipment_items หากมีชิ้นระบุไว้
+    try {
+      const itemsCount = await client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,
+        [borrow.equipment_id]
+      );
+      if ((itemsCount.rows[0]?.count ?? 0) > 0) {
+        await client.query(
+          `UPDATE equipment
+           SET available_qty = (
+             SELECT COUNT(*)::int
+             FROM equipment_items
+             WHERE equipment_id = $1 AND status = 'available'
+           )
+           WHERE id = $1`,
+          [borrow.equipment_id]
+        );
+      }
+    } catch {
+      // ignore
+    }
+
     await refreshEquipmentStatus(client, borrow.equipment_id);
     await client.query('COMMIT');
 
@@ -610,6 +668,7 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
     res.status(500).json({
       message: 'ไม่สามารถบันทึกการคืนได้',
       error: error?.message || String(error),
+      code: error?.code,
       detail: error?.detail,
     });
   } finally {
@@ -808,14 +867,40 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         );
         await client.query(
           `UPDATE equipment
-           SET available_qty = (
-             SELECT COUNT(*)::int
-             FROM equipment_items
-             WHERE equipment_id = $1 AND status = 'available'
-           )
-           WHERE id = $1`,
-          [borrow.equipment_id]
+           SET available_qty = LEAST(total_qty, available_qty + $1)
+           WHERE id = $2`,
+          [borrow.quantity, borrow.equipment_id]
         );
+        try {
+          await client.query(
+            `UPDATE sports_equipment
+             SET available_qty = LEAST(total_qty, available_qty + $1)
+             WHERE id = $2`,
+            [borrow.quantity, borrow.equipment_id]
+          );
+        } catch {
+          // ignore
+        }
+        try {
+          const itemsCount = await client.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,
+            [borrow.equipment_id]
+          );
+          if ((itemsCount.rows[0]?.count ?? 0) > 0) {
+            await client.query(
+              `UPDATE equipment
+               SET available_qty = (
+                 SELECT COUNT(*)::int
+                 FROM equipment_items
+                 WHERE equipment_id = $1 AND status = 'available'
+               )
+               WHERE id = $1`,
+              [borrow.equipment_id]
+            );
+          }
+        } catch {
+          // ignore
+        }
         await refreshEquipmentStatus(client, borrow.equipment_id);
       }
 

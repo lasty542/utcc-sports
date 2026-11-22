@@ -17,6 +17,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { listBorrows, verifyScan, type BorrowItem } from '../../../services/borrowService';
+import { notifyBorrowUpdated } from '../../../utils/realtime';
 
 interface ScannerModalProps {
   isOpen: boolean;
@@ -85,6 +86,7 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
         );
         setScanCode('');
         onSuccess();
+        notifyBorrowUpdated();
       } catch (err) {
         setScanError(getErrorMessage(err, 'ไม่พบรายการยืมที่รอรับของหรือยังไม่ได้คืนสำหรับรหัสนี้'));
       } finally {

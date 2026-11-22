@@ -6,13 +6,15 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { adminDashboardStyles as styles } from './AdminDashboard.styles';
-import { ArrowLeft, CheckCircle2, Clock, AlertCircle, Trash2, Loader2, Search } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Clock, AlertCircle, Trash2, Loader2, Search, QrCode } from 'lucide-react';
 import {
   listBorrows,
   verifyScan,
   deleteBorrow,
   type BorrowItem,
 } from '../../services/borrowService';
+import ScannerModal from './components/ScannerModal';
+import { notifyBorrowUpdated, subscribeBorrowUpdated } from '../../utils/realtime';
 
 const SCENIC_MEADOW_BG =
   'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1920&auto=format&fit=crop';
@@ -45,6 +47,7 @@ export default function AdminBorrowLogs() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<number | null>(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // โหลดรายการยืม-คืนทั้งหมดจากเซิร์ฟเวอร์
   const fetchBorrows = useCallback(async () => {
@@ -76,10 +79,17 @@ export default function AdminBorrowLogs() {
       .finally(() => {
         if (active) setLoading(false);
       });
+
+    // เชื่อมต่อการอัปเดตแบบ Real-time ข้ามหน้าจอ
+    const unsubscribe = subscribeBorrowUpdated(() => {
+      void fetchBorrows();
+    });
+
     return () => {
       active = false;
+      unsubscribe();
     };
-  }, []);
+  }, [fetchBorrows]);
 
   // อนุมัติรับของ / รับคืนอุปกรณ์ผ่าน POST /api/borrow/verify-scan
   const handleProcessItem = async (id: number) => {
@@ -87,6 +97,7 @@ export default function AdminBorrowLogs() {
     try {
       const { borrow: updated } = await verifyScan(String(id));
       setBorrowList((prev) => prev.map((item) => (item.id === id ? updated : item)));
+      notifyBorrowUpdated();
     } catch (err) {
       alert(getErrorMessage(err, 'ไม่สามารถอัปเดตรายการได้'));
     } finally {
@@ -102,6 +113,7 @@ export default function AdminBorrowLogs() {
     try {
       await deleteBorrow(id);
       setBorrowList((prev) => prev.filter((item) => item.id !== id));
+      notifyBorrowUpdated();
     } catch (err) {
       alert(getErrorMessage(err, 'ไม่สามารถลบรายการได้'));
     } finally {
@@ -169,9 +181,19 @@ export default function AdminBorrowLogs() {
             </button>
             <h1 className="text-base sm:text-lg font-black text-emerald-950">ตรวจสอบรายการยืม-คืนอุปกรณ์</h1>
           </div>
-          <span className="text-xs font-bold text-slate-700 bg-white/80 px-3.5 py-1 rounded-full border border-white">
-            ทั้งหมด {borrowList.length} รายการ
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="bg-slate-900 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-full transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-sm"
+              title="เปิดกล้องสแกน QR Code"
+            >
+              <QrCode size={14} /> สแกน QR Code
+            </button>
+            <span className="text-xs font-bold text-slate-700 bg-white/80 px-3.5 py-1.5 rounded-full border border-white">
+              ทั้งหมด {borrowList.length} รายการ
+            </span>
+          </div>
         </div>
 
         {/* ตารางแสดงรายการยืมของนักศึกษา */}
@@ -317,20 +339,32 @@ export default function AdminBorrowLogs() {
                             {item.status}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-center space-x-2 whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           {!isReturned ? (
-                            <button
-                              onClick={() => void handleProcessItem(item.id)}
-                              disabled={isBusy}
-                              className={`${
-                                isPending
-                                  ? 'bg-indigo-600 hover:bg-indigo-700'
-                                  : 'bg-emerald-600 hover:bg-emerald-700'
-                              } disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-xl text-[11px] transition-all cursor-pointer shadow inline-flex items-center gap-1`}
-                            >
-                              {isBusy && <Loader2 size={12} className="animate-spin" />}
-                              {isPending ? 'อนุมัติรับอุปกรณ์' : 'รับคืนอุปกรณ์'}
-                            </button>
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                onClick={() => void handleProcessItem(item.id)}
+                                disabled={isBusy}
+                                className={`${
+                                  isPending
+                                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                                    : 'bg-emerald-600 hover:bg-emerald-700'
+                                } disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-xl text-[11px] transition-all cursor-pointer shadow inline-flex items-center gap-1`}
+                              >
+                                {isBusy && <Loader2 size={12} className="animate-spin" />}
+                                {isPending ? 'อนุมัติรับอุปกรณ์' : 'รับคืนอุปกรณ์'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setIsScannerOpen(true)}
+                                className="bg-slate-800 hover:bg-slate-900 text-white font-bold px-2.5 py-1.5 rounded-xl text-[11px] transition-all cursor-pointer shadow inline-flex items-center gap-1"
+                                title="เปิดกล้องสแกน QR Code"
+                              >
+                                <QrCode size={13} />
+                                สแกน QR
+                              </button>
+                            </div>
                           ) : (
                             <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
                               คืนแล้ว
@@ -339,7 +373,7 @@ export default function AdminBorrowLogs() {
                           <button
                             onClick={() => void handleDeleteItem(item.id)}
                             disabled={isBusy}
-                            className="text-red-400 hover:text-red-600 disabled:opacity-40 p-1.5 transition-colors cursor-pointer inline-block align-middle"
+                            className="text-red-400 hover:text-red-600 disabled:opacity-40 p-1.5 ml-1 transition-colors cursor-pointer inline-block align-middle"
                             title="ลบรายการ"
                           >
                             <Trash2 size={16} />
@@ -354,6 +388,16 @@ export default function AdminBorrowLogs() {
           )}
         </div>
       </div>
+
+      {/* Modal สแกน QR Code */}
+      <ScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onSuccess={() => {
+          void fetchBorrows();
+          notifyBorrowUpdated();
+        }}
+      />
     </div>
   );
 }

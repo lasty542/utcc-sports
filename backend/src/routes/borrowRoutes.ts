@@ -22,8 +22,10 @@ router.get('/quota', getUserQuota);
 router.get('/qr-token', getQrToken);
 router.post('/', createBorrow);
 router.post('/:id/pickup', confirmPickup);
+router.patch('/:id/pickup', confirmPickup);
 router.post('/verify-scan', requireRole('admin'), verifyScan);
 router.patch('/:id/return', returnBorrow);
+router.post('/:id/return', returnBorrow);
 router.delete('/:id', requireRole('admin'), deleteBorrow);
 
 export default router;

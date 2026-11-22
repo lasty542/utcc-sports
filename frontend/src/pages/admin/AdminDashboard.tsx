@@ -25,6 +25,7 @@ import SettingsModal from '../../components/SettingsModal';
 import NotificationsModal from './components/NotificationsModal';
 import RecentLogsTable from './components/RecentLogsTable';
 import { listBorrows, type BorrowItem } from '../../services/borrowService';
+import { notifyBorrowUpdated, subscribeBorrowUpdated } from '../../utils/realtime';
 
 const SCENIC_MEADOW_BG =
   'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1920&auto=format&fit=crop';
@@ -59,10 +60,17 @@ export default function AdminDashboard() {
       .catch(() => {
         // ถ้าโหลดไม่ได้ก็ใช้ข้อมูลเดิม
       });
+
+    // เชื่อมต่อการแจ้งเตือน Real-time ข้ามแท็บ
+    const unsubscribe = subscribeBorrowUpdated(() => {
+      void fetchBorrows();
+    });
+
     return () => {
       active = false;
+      unsubscribe();
     };
-  }, []);
+  }, [fetchBorrows]);
 
   // Real-time Auto-polling ทุกๆ 3.5 วินาที เพื่อดึงรายการล่าสุดและแจ้งเตือนเมื่อมีการยืม/คืน
   useEffect(() => {
@@ -390,7 +398,10 @@ export default function AdminDashboard() {
         <ScannerModal
           isOpen={isScannerOpen}
           onClose={() => setIsScannerOpen(false)}
-          onSuccess={() => fetchBorrows()}
+          onSuccess={() => {
+            fetchBorrows();
+            notifyBorrowUpdated();
+          }}
         />
         <SettingsModal
           isOpen={isSettingsOpen}
