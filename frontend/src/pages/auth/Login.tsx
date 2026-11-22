@@ -61,10 +61,7 @@ export default function Login() {
       setAuthSession(res.user, res.token);
       navigate(res.user.role === 'admin' ? '/admin' : '/student', { replace: true });
     } catch (err: unknown) {
-      const errRes =
-        axios.isAxiosError<{ message?: string }>(err)
-          ? err.response?.data?.message
-          : null;
+      const errRes = axios.isAxiosError<{ message?: string }>(err) ? err.response?.data?.message : null;
       setError(errRes || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
     } finally {
       setIsLoading(false);
@@ -81,6 +78,22 @@ export default function Login() {
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-600/15 via-transparent to-black/50 pointer-events-none z-0" />
 
       <div className="relative z-10 w-full max-w-[440px] sm:max-w-[460px] mx-auto flex flex-col items-center my-auto">
+        {/* University Logo */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="mb-3.5 flex justify-center"
+        >
+          <div className="bg-white/90 backdrop-blur-md px-6 py-3 rounded-2xl shadow-lg border border-white/40 flex items-center justify-center">
+            <img
+              src="/UTCC_SubMain2-1.png"
+              alt="มหาวิทยาลัยหอการค้าไทย (UTCC)"
+              className="h-14 sm:h-16 w-auto object-contain drop-shadow-xs"
+            />
+          </div>
+        </motion.div>
+
         {/* Brand Header */}
         <div className="w-full flex items-center justify-between mb-2.5">
           <div className="inline-flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-200 shadow-md">
@@ -255,9 +268,7 @@ export default function Login() {
               <RegisterForm
                 onGoogleSignIn={handleGoogleSignIn}
                 isSocialLoading={isSocialLoading}
-                onSuccess={() => {
-                  // Redirected by AuthContext
-                }}
+                onSuccess={() => {}}
               />
             )}
           </AnimatePresence>
