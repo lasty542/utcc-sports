@@ -102,3 +102,9 @@ export async function updateItemStatus(
   );
   return data;
 }
+
+// จัดระเบียบคลังอุปกรณ์ให้ตรงกับ 5 รายการหลักมาตรฐาน (สำหรับ Admin)
+export async function consolidateEquipment(): Promise<void> {
+  await api.post('/equip/consolidate');
+}
+

@@ -4,6 +4,7 @@
 import type { Request, Response } from 'express';
 import { pool } from '../config/db';
 import { readQuantity, readString } from '../utils';
+import { consolidateEquipmentCatalog } from '../config/seedEquip';
 
 export { listEquipmentItems, updateItemStatus } from './equipItemController';
 
@@ -240,5 +241,16 @@ export async function deleteEquipment(req: Request, res: Response): Promise<void
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'ไม่สามารถลบอุปกรณ์ได้' });
+  }
+}
+
+// จัดระเบียบและยุบรวมคลังอุปกรณ์ให้ตรงกับ 5 รายการหลักมาตรฐาน
+export async function consolidateEquipment(_req: Request, res: Response): Promise<void> {
+  try {
+    await consolidateEquipmentCatalog(pool);
+    res.json({ message: 'จัดระเบียบและซิงก์คลังอุปกรณ์ 5 รายการหลักเรียบร้อยแล้ว' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถจัดระเบียบรายการอุปกรณ์ได้' });
   }
 }

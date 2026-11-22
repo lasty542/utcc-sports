@@ -3,6 +3,7 @@
  */
 import { Router } from 'express';
 import {
+  consolidateEquipment,
   createEquipment,
   deleteEquipment,
   getEquipment,
@@ -16,6 +17,7 @@ import { authMiddleware, requireRole } from '../middlewares/authMiddleware';
 const router = Router();
 
 router.get('/', listEquipment);
+router.post('/consolidate', authMiddleware, requireRole('admin'), consolidateEquipment);
 router.get('/:id', getEquipment);
 router.get('/:id/items', listEquipmentItems);
 router.patch('/items/:itemId/status', authMiddleware, requireRole('admin'), updateItemStatus);

@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { inventoryStyles as styles } from './Inventory.styles';
-import { Package, Plus, AlertCircle, Loader2 } from 'lucide-react';
+import { Package, Plus, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import InventoryModal, { type InventoryItem } from './components/InventoryModal';
 import SerialItemsModal from './components/SerialItemsModal';
@@ -15,6 +15,7 @@ import {
   createEquipment,
   updateEquipment,
   deleteEquipment,
+  consolidateEquipment,
   type EquipmentItem,
 } from '../../services/equipService';
 
@@ -52,6 +53,7 @@ export default function Inventory() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [serialModalEquip, setSerialModalEquip] = useState<InventoryItem | null>(null);
+  const [isConsolidating, setIsConsolidating] = useState(false);
 
   // โหลดรายการอุปกรณ์ทั้งหมดจาก API ใหม่
   const fetchItems = useCallback(async () => {
@@ -134,6 +136,22 @@ export default function Inventory() {
     }
   };
 
+  // ยุบรวมและจัดระเบียบคลังอุปกรณ์ให้มีเฉพาะ 5 รายการหลักมาตรฐาน
+  const handleConsolidate = async () => {
+    if (confirm('คุณต้องการจัดระเบียบคลังอุปกรณ์ให้มีเฉพาะ 5 รายการหลัก (เหมือน Localhost) ใช่หรือไม่?')) {
+      try {
+        setIsConsolidating(true);
+        await consolidateEquipment();
+        await fetchItems();
+        alert('จัดระเบียบและซิงก์คลังอุปกรณ์ 5 รายการหลักเรียบร้อยแล้ว');
+      } catch (err) {
+        alert(getErrorMessage(err, 'ไม่สามารถจัดระเบียบอุปกรณ์ได้'));
+      } finally {
+        setIsConsolidating(false);
+      }
+    }
+  };
+
   return (
     <div className={styles.container}>
       <div className={styles.bgImageOverlay} />
@@ -187,15 +205,27 @@ export default function Inventory() {
               <p className="text-gray-500 text-xs">เพิ่ม แก้ไข หรือตรวจสอบสถานะสต็อกอุปกรณ์กีฬาทั้งหมดในระบบ</p>
             </div>
 
-            <button
-              onClick={() => {
-                setEditingItem(null);
-                setIsModalOpen(true);
-              }}
-              className={styles.addBtn}
-            >
-              <Plus size={15} /> เพิ่มอุปกรณ์ใหม่
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void handleConsolidate()}
+                disabled={isConsolidating}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+                title="ยุบรวมและจัดระเบียบอุปกรณ์ให้มีเฉพาะ 5 รายการหลักมาตรฐานเหมือน Localhost"
+              >
+                <Sparkles size={14} className={isConsolidating ? 'animate-spin' : ''} />
+                <span className="hidden sm:inline">จัดระเบียบ 5 รายการหลัก</span>
+                <span className="sm:hidden">จัดระเบียบ</span>
+              </button>
+              <button
+                onClick={() => {
+                  setEditingItem(null);
+                  setIsModalOpen(true);
+                }}
+                className={styles.addBtn}
+              >
+                <Plus size={15} /> เพิ่มอุปกรณ์ใหม่
+              </button>
+            </div>
           </div>
 
           {/* Loading / Error / Table */}
