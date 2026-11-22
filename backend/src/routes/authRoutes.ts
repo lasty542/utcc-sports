@@ -19,6 +19,8 @@ import {
   setupOtp,
   updateProfile,
   verifyOtp,
+  verifyResetIdentity,
+  instantResetPassword,
 } from '../controllers/authController';
 import { authMiddleware } from '../middlewares/authMiddleware';
 
@@ -28,6 +30,8 @@ router.post('/register', register);
 router.post('/login', login);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
+router.post('/verify-reset-identity', verifyResetIdentity);
+router.post('/instant-reset-password', instantResetPassword);
 router.get('/microsoft/status', microsoftStatus);
 router.get('/microsoft', microsoftAuth);
 router.get('/microsoft/callback', microsoftCallback);

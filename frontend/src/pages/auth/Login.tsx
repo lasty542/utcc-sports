@@ -1,6 +1,6 @@
 /**
- * หน้าเข้าสู่ระบบและสมัครสมาชิก UTCC Sport (Minimal Clean Unified Login)
- * ดีไซน์คลีน มินิมอล รองรับการแสดงผลทุกขนาดหน้าจอ ทั้งมือถือ โน้ตบุ๊ก และคอมพิวเตอร์
+ * หน้าเข้าสู่ระบบและสมัครสมาชิก UTCC Sport (Clean High-Contrast Vertical Layout)
+ * ดีไซน์คลีน คมชัด อ่านง่าย ฟอร์มแนวตั้งเดี่ยว พร้อมระบบรีเซ็ตรหัสผ่าน 2 ขั้นตอนทันที
  */
 import { useState, useContext, type FormEvent } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,15 +10,16 @@ import {
   ArrowRight,
   Leaf,
   ShieldCheck,
-  MailCheck,
+  CheckCircle2,
   Loader2,
   Eye,
   EyeOff,
   AlertCircle,
   X,
-  Mail,
+  KeyRound,
   UserPlus,
   LogIn,
+  ArrowLeft,
 } from 'lucide-react';
 import { AuthContext } from '../../contexts/AuthContext';
 import { authService } from '../../services/authService';
@@ -79,25 +80,31 @@ export default function Login() {
   // Social Login Loading State
   const [isSocialLoading, setIsSocialLoading] = useState<'google' | 'microsoft' | null>(null);
 
-  // Register State (สำหรับนักศึกษาใหม่)
+  // Register State (จัดเรียงแนวตั้งเดี่ยว Single Column พร้อมแยกชื่อ-นามสกุล)
   const [regStudentId, setRegStudentId] = useState('');
-  const [regName, setRegName] = useState('');
+  const [regFirstName, setRegFirstName] = useState('');
+  const [regLastName, setRegLastName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
 
-  // Forgot Password modal state
+  // Instant Forgot Password Modal State (Step 1: ตรวจสอบข้อมูล -> Step 2: ตั้งรหัสใหม่ -> Step 3: สำเร็จ)
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<1 | 2 | 3>(1);
   const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotEmailError, setForgotEmailError] = useState<string | null>(null);
+  const [forgotStudentId, setForgotStudentId] = useState('');
+  const [forgotToken, setForgotToken] = useState('');
+  const [forgotUserName, setForgotUserName] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
+  const [showForgotConfirmPassword, setShowForgotConfirmPassword] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
   const [isForgotSubmitting, setIsForgotSubmitting] = useState(false);
-  const [forgotResult, setForgotResult] = useState<{
-    message: string;
-    emailSent?: boolean;
-  } | null>(null);
 
   // หากมี session เข้าสู่ระบบอยู่แล้ว ให้นำทางไปยังหน้าที่ถูกต้องตาม Role ทันที
   if (!authContext?.loading && authContext?.user) {
@@ -157,25 +164,30 @@ export default function Login() {
     }
   };
 
-  // สมัครสมาชิกใหม่ (สำหรับสิทธิ์ student)
+  // สมัครสมาชิกใหม่ (สำหรับสิทธิ์ student) - รวม firstName + lastName ส่งเป็น name
   const handleRegisterSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setRegError(null);
 
     const idTrimmed = regStudentId.trim();
-    const nameTrimmed = regName.trim();
+    const firstTrimmed = regFirstName.trim();
+    const lastTrimmed = regLastName.trim();
     const emailTrimmed = regEmail.trim().toLowerCase();
 
     if (!idTrimmed || idTrimmed.length < 4) {
       setRegError('กรุณากรอกรหัสนักศึกษาให้ถูกต้อง (เช่น 2410511101055)');
       return;
     }
-    if (nameTrimmed.length < 2) {
-      setRegError('กรุณากรอกชื่อ-นามสกุลจริง');
+    if (!firstTrimmed) {
+      setRegError('กรุณากรอกชื่อจริง');
+      return;
+    }
+    if (!lastTrimmed) {
+      setRegError('กรุณากรอกนามสกุล');
       return;
     }
     if (!emailTrimmed || !EMAIL_REGEX.test(emailTrimmed)) {
-      setRegError('กรุณากรอกอีเมลที่ถูกต้อง (รองรับทั้ง @gmail.com, @hotmail.com, @utcc.ac.th ฯลฯ)');
+      setRegError('กรุณากรอกอีเมลที่ถูกต้อง (รองรับทั้ง @gmail.com และ @live4.utcc.ac.th)');
       return;
     }
     if (regPassword.length < 6) {
@@ -187,11 +199,13 @@ export default function Login() {
       return;
     }
 
+    const fullName = `${firstTrimmed} ${lastTrimmed}`.trim();
+
     setIsRegistering(true);
     try {
       const { token, user } = await authService.register({
         studentId: idTrimmed,
-        name: nameTrimmed,
+        name: fullName,
         email: emailTrimmed,
         password: regPassword,
         role: 'student',
@@ -217,14 +231,6 @@ export default function Login() {
     window.location.href = authService.getGoogleLoginUrl();
   };
 
-  // ดำเนินการเข้าสู่ระบบด้วย Microsoft
-  const handleMicrosoftSignIn = () => {
-    setApiError(null);
-    setRegError(null);
-    setIsSocialLoading('microsoft');
-    window.location.href = authService.getMicrosoftLoginUrl();
-  };
-
   // เติมโดเมนอีเมลให้อัตโนมัติเมื่อกดชิปแนะนำ
   const applyDomainSuffix = (domain: string) => {
     const base = regEmail.split('@')[0] || regStudentId || 'student';
@@ -232,11 +238,16 @@ export default function Login() {
     setRegError(null);
   };
 
-  // เปิด/ปิด Modal รีเซ็ตรหัสผ่าน
+  // เปิด/ปิด Modal รีเซ็ตรหัสผ่านแบบทันที
   const openForgotModal = () => {
+    setForgotStep(1);
     setForgotEmail(identifier.includes('@') ? identifier.trim() : '');
-    setForgotEmailError(null);
-    setForgotResult(null);
+    setForgotStudentId(!identifier.includes('@') ? identifier.trim() : '');
+    setForgotToken('');
+    setForgotUserName('');
+    setForgotNewPassword('');
+    setForgotConfirmPassword('');
+    setForgotError(null);
     setIsForgotModalOpen(true);
   };
 
@@ -245,24 +256,66 @@ export default function Login() {
     setIsForgotModalOpen(false);
   };
 
-  const handleForgotSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  // ขั้นตอนที่ 1: ตรวจสอบอีเมล + รหัสนักศึกษา กับฐานข้อมูล
+  const handleVerifyIdentity = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmedEmail = forgotEmail.trim().toLowerCase();
+    const trimmedId = forgotStudentId.trim();
 
     if (!trimmedEmail || !EMAIL_REGEX.test(trimmedEmail)) {
-      setForgotEmailError('กรุณากรอกอีเมลให้ถูกต้อง');
+      setForgotError('กรุณากรอกอีเมลให้ถูกต้อง');
+      return;
+    }
+    if (!trimmedId) {
+      setForgotError('กรุณากรอกรหัสนักศึกษา หรือชื่อบัญชี');
       return;
     }
 
-    setForgotEmailError(null);
+    setForgotError(null);
     setIsForgotSubmitting(true);
     try {
-      const res = await authService.requestPasswordReset(trimmedEmail);
-      setForgotResult(res);
+      const res = await authService.verifyResetIdentity(trimmedEmail, trimmedId);
+      setForgotToken(res.token);
+      setForgotUserName(res.name || 'ผู้ใช้งาน');
+      setForgotStep(2);
     } catch (err) {
-      setForgotEmailError(
+      setForgotError(
         axios.isAxiosError<{ message?: string }>(err)
-          ? err.response?.data?.message || 'ไม่สามารถส่งคำขอรีเซ็ตรหัสผ่านได้'
+          ? err.response?.data?.message || 'ไม่พบข้อมูลที่ตรงกันในระบบ กรุณาตรวจสอบอีเมลและรหัสนักศึกษา'
+          : 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์ กรุณาลองใหม่'
+      );
+    } finally {
+      setIsForgotSubmitting(false);
+    }
+  };
+
+  // ขั้นตอนที่ 2: ตั้งรหัสผ่านใหม่และบันทึกลงฐานข้อมูลทันที
+  const handleResetPasswordSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (forgotNewPassword.length < 6) {
+      setForgotError('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
+      return;
+    }
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setForgotError('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน');
+      return;
+    }
+
+    setForgotError(null);
+    setIsForgotSubmitting(true);
+    try {
+      await authService.instantResetPassword({
+        token: forgotToken,
+        email: forgotEmail.trim().toLowerCase(),
+        studentId: forgotStudentId.trim(),
+        newPassword: forgotNewPassword,
+      });
+      setForgotStep(3);
+    } catch (err) {
+      setForgotError(
+        axios.isAxiosError<{ message?: string }>(err)
+          ? err.response?.data?.message || 'ไม่สามารถตั้งรหัสผ่านใหม่ได้ กรุณาลองใหม่'
           : 'เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่'
       );
     } finally {
@@ -272,33 +325,33 @@ export default function Login() {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#89a9ba] bg-cover bg-center bg-fixed font-sans flex flex-col justify-between items-center p-4 sm:p-6 relative overflow-x-hidden"
+      className="min-h-screen w-full bg-[#89a9ba] bg-cover bg-center bg-fixed font-sans flex flex-col justify-between items-center p-3 sm:p-6 relative overflow-x-hidden"
       style={{ backgroundImage: `url('${SCENIC_MEADOW_BG}')` }}
     >
       {/* Background Soft Overlay */}
-      <div className="fixed inset-0 bg-gradient-to-b from-slate-900/25 via-emerald-950/20 to-slate-950/45 backdrop-blur-[2px] pointer-events-none z-0" />
+      <div className="fixed inset-0 bg-gradient-to-b from-slate-900/30 via-emerald-950/25 to-slate-950/50 backdrop-blur-[2px] pointer-events-none z-0" />
 
       {/* Top Floating Mini Brand Pill */}
-      <div className="relative z-10 w-full max-w-[460px] mx-auto flex items-center justify-between mb-2 sm:mb-4">
-        <div className="inline-flex items-center gap-2 bg-white/85 backdrop-blur-xl px-3.5 py-1.5 rounded-full border border-white/80 shadow-md">
+      <div className="relative z-10 w-full max-w-[460px] mx-auto flex items-center justify-between mb-3">
+        <div className="inline-flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-200 shadow-md">
           <Leaf className="text-emerald-600" size={16} />
           <span className="text-xs font-black tracking-wider text-slate-900 uppercase">
             UTCC Sport<span className="text-emerald-600">®</span>
           </span>
         </div>
 
-        <div className="inline-flex items-center gap-1.5 bg-white/50 backdrop-blur-xl border border-white/60 text-slate-900 px-3 py-1 rounded-full text-[11px] font-bold shadow-xs">
+        <div className="inline-flex items-center gap-1.5 bg-white/80 backdrop-blur-md border border-slate-200 text-slate-800 px-3 py-1 rounded-full text-[11px] font-bold shadow-xs">
           <ShieldCheck size={14} className="text-emerald-700" />
           <span>ระบบยืม-คืนอุปกรณ์กีฬา</span>
         </div>
       </div>
 
-      {/* Main Minimal Centered Card */}
+      {/* Main Card (High Contrast Clean White Card) */}
       <motion.div
         initial={{ opacity: 0, y: 16, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
-        className="relative z-10 w-full max-w-[440px] sm:max-w-[460px] mx-auto my-auto bg-white/92 backdrop-blur-2xl rounded-3xl sm:rounded-[2.2rem] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.22)] border border-white/90 p-5 sm:p-7 flex flex-col"
+        transition={{ duration: 0.28, ease: 'easeOut' }}
+        className="relative z-10 w-full max-w-[450px] sm:max-w-[470px] mx-auto my-auto bg-white/95 backdrop-blur-md rounded-3xl shadow-xl border border-slate-200 p-6 sm:p-8 flex flex-col"
       >
         {/* Brand Icon & Welcome Title */}
         <div className="text-center mb-5">
@@ -308,7 +361,7 @@ export default function Login() {
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
             {mode === 'login' ? 'เข้าสู่ระบบ UTCC Sport' : 'สมัครสมาชิกใหม่'}
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-slate-600 mt-1">
             {mode === 'login'
               ? 'ระบบยืม-คืนอุปกรณ์กีฬาออนไลน์ มหาวิทยาลัยหอการค้าไทย'
               : 'กรอกข้อมูลนักศึกษาของคุณเพื่อเริ่มต้นใช้งาน'}
@@ -316,7 +369,7 @@ export default function Login() {
         </div>
 
         {/* Minimal Tab Switcher Pill */}
-        <div className="grid grid-cols-2 p-1 bg-slate-100/90 rounded-2xl mb-5 text-xs sm:text-sm font-bold">
+        <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl mb-5 text-xs sm:text-sm font-bold border border-slate-200/80">
           <button
             type="button"
             onClick={() => {
@@ -326,8 +379,8 @@ export default function Login() {
             }}
             className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               mode === 'login'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                ? 'bg-white text-slate-900 shadow-sm font-extrabold'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <LogIn size={15} /> เข้าสู่ระบบ
@@ -340,8 +393,8 @@ export default function Login() {
             }}
             className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               mode === 'register'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                ? 'bg-white text-slate-900 shadow-sm font-extrabold'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <UserPlus size={15} /> สมัครสมาชิก
@@ -352,7 +405,7 @@ export default function Login() {
         {apiError && (
           <div
             role="alert"
-            className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-4"
+            className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-4 shadow-2xs"
           >
             <AlertCircle size={16} className="shrink-0 mt-0.5" />
             <span>{apiError}</span>
@@ -368,11 +421,11 @@ export default function Login() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18 }}
+              transition={{ duration: 0.16 }}
             >
-              <form onSubmit={handleLogin} className="space-y-3.5" noValidate>
+              <form onSubmit={handleLogin} className="space-y-4" noValidate>
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1.5" htmlFor="identifier">
+                  <label className="text-xs font-bold text-slate-800 block mb-1.5" htmlFor="identifier">
                     รหัสนักศึกษา / บัญชี หรือ อีเมล
                   </label>
                   <input
@@ -387,8 +440,8 @@ export default function Login() {
                     }}
                     disabled={isLoading}
                     placeholder="เช่น 2410511101055 หรือ admin"
-                    className={`w-full px-4 py-3 rounded-2xl border bg-slate-50/70 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all ${
-                      fieldErrors.identifier ? 'border-red-400' : 'border-slate-200/90'
+                    className={`w-full px-4 py-3 rounded-2xl border bg-white text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all ${
+                      fieldErrors.identifier ? 'border-red-400' : 'border-slate-300'
                     }`}
                   />
                   {fieldErrors.identifier && (
@@ -398,13 +451,13 @@ export default function Login() {
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700" htmlFor="password">
+                    <label className="text-xs font-bold text-slate-800" htmlFor="password">
                       รหัสผ่าน
                     </label>
                     <button
                       type="button"
                       onClick={openForgotModal}
-                      className="text-xs font-bold text-emerald-700 hover:underline bg-transparent border-none cursor-pointer"
+                      className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline bg-transparent border-none cursor-pointer"
                     >
                       ลืมรหัสผ่าน?
                     </button>
@@ -422,14 +475,14 @@ export default function Login() {
                       }}
                       disabled={isLoading}
                       placeholder="กรอกรหัสผ่านของคุณ"
-                      className={`w-full px-4 py-3 pr-11 rounded-2xl border bg-slate-50/70 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all ${
-                        fieldErrors.password ? 'border-red-400' : 'border-slate-200/90'
+                      className={`w-full px-4 py-3 pr-11 rounded-2xl border bg-white text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all ${
+                        fieldErrors.password ? 'border-red-400' : 'border-slate-300'
                       }`}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((p) => !p)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1.5"
                       tabIndex={-1}
                       aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
                     >
@@ -444,7 +497,7 @@ export default function Login() {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-slate-900 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm mt-1"
+                  className="w-full bg-slate-900 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm mt-2"
                 >
                   {isLoading ? (
                     <>
@@ -464,22 +517,22 @@ export default function Login() {
                   <div className="w-full border-t border-slate-200" />
                 </div>
                 <div className="relative flex justify-center text-[11px]">
-                  <span className="bg-white/95 px-2.5 text-slate-400 font-medium">
+                  <span className="bg-white px-2.5 text-slate-500 font-semibold">
                     หรือเข้าสู่ระบบด้วย
                   </span>
                 </div>
               </div>
 
-              {/* Social Login Buttons */}
-              <div className="grid grid-cols-2 gap-2.5">
+              {/* Social Login: Full Width Google Button */}
+              <div>
                 <button
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={isLoading || isSocialLoading !== null}
-                  className="w-full bg-white hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-3 rounded-2xl border border-slate-200 shadow-2xs hover:shadow-xs transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+                  className="w-full bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 font-bold py-3 px-4 rounded-2xl border border-slate-300 shadow-xs hover:shadow-sm transition-all flex items-center justify-center gap-2.5 text-xs sm:text-sm cursor-pointer"
                 >
                   {isSocialLoading === 'google' ? (
-                    <Loader2 size={16} className="animate-spin text-slate-500" />
+                    <Loader2 size={17} className="animate-spin text-slate-500" />
                   ) : (
                     <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
                       <path
@@ -500,156 +553,169 @@ export default function Login() {
                       />
                     </svg>
                   )}
-                  <span>Google</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleMicrosoftSignIn}
-                  disabled={isLoading || isSocialLoading !== null}
-                  className="w-full bg-white hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-3 rounded-2xl border border-slate-200 shadow-2xs hover:shadow-xs transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
-                >
-                  {isSocialLoading === 'microsoft' ? (
-                    <Loader2 size={16} className="animate-spin text-slate-500" />
-                  ) : (
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21" aria-hidden="true">
-                      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                    </svg>
-                  )}
-                  <span>Microsoft</span>
+                  <span>เข้าสู่ระบบด้วย Google</span>
                 </button>
               </div>
             </motion.div>
           ) : (
-            /* ==================== REGISTER FORM ==================== */
+            /* ==================== REGISTER FORM (Single Column Vertical Layout) ==================== */
             <motion.div
               key="minimal-register"
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18 }}
+              transition={{ duration: 0.16 }}
             >
               {regError && (
-                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-3">
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-3 shadow-2xs">
                   <AlertCircle size={15} className="shrink-0 mt-0.5" />
                   <span>{regError}</span>
                 </div>
               )}
 
-              <form onSubmit={handleRegisterSubmit} className="space-y-3 text-xs" noValidate>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regStudentId">
-                      รหัสนักศึกษา
-                    </label>
-                    <input
-                      id="regStudentId"
-                      type="text"
-                      maxLength={16}
-                      placeholder="เช่น 2410511101055"
-                      value={regStudentId}
-                      onChange={(e) => setRegStudentId(e.target.value)}
-                      disabled={isRegistering}
-                      className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regName">
-                      ชื่อ-นามสกุล
-                    </label>
-                    <input
-                      id="regName"
-                      type="text"
-                      placeholder="ชื่อและนามสกุลจริง"
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      disabled={isRegistering}
-                      className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
-                    />
-                  </div>
+              {/* ฟอร์มแนวตั้ง 1 ช่องต่อ 1 บรรทัด เรียงลำดับชัดเจน */}
+              <form onSubmit={handleRegisterSubmit} className="space-y-3.5 text-xs" noValidate>
+                {/* 1) รหัสนักศึกษา */}
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regStudentId">
+                    1) รหัสนักศึกษา
+                  </label>
+                  <input
+                    id="regStudentId"
+                    type="text"
+                    maxLength={16}
+                    placeholder="เช่น 2410511101055"
+                    value={regStudentId}
+                    onChange={(e) => setRegStudentId(e.target.value)}
+                    disabled={isRegistering}
+                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                  />
                 </div>
 
+                {/* 2) ชื่อจริง */}
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regFirstName">
+                    2) ชื่อจริง
+                  </label>
+                  <input
+                    id="regFirstName"
+                    type="text"
+                    placeholder="กรอกชื่อจริงของคุณ"
+                    value={regFirstName}
+                    onChange={(e) => setRegFirstName(e.target.value)}
+                    disabled={isRegistering}
+                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                  />
+                </div>
+
+                {/* 3) นามสกุล */}
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regLastName">
+                    3) นามสกุล
+                  </label>
+                  <input
+                    id="regLastName"
+                    type="text"
+                    placeholder="กรอกนามสกุลของคุณ"
+                    value={regLastName}
+                    onChange={(e) => setRegLastName(e.target.value)}
+                    disabled={isRegistering}
+                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                  />
+                </div>
+
+                {/* 4) อีเมลติดต่อ (พร้อมปุ่มเติมโดเมนอัตโนมัติ) */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="font-bold text-slate-700" htmlFor="regEmail">
-                      อีเมลติดต่อ
+                    <label className="font-bold text-slate-800" htmlFor="regEmail">
+                      4) อีเมลติดต่อ
                     </label>
-                    <div className="flex items-center gap-1 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <button
                         type="button"
                         onClick={() => applyDomainSuffix('gmail.com')}
-                        className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full cursor-pointer transition-colors"
+                        className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 px-2.5 py-0.5 rounded-full cursor-pointer transition-colors border border-slate-200"
                       >
                         @gmail.com
                       </button>
                       <button
                         type="button"
-                        onClick={() => applyDomainSuffix('utcc.ac.th')}
-                        className="text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-full cursor-pointer transition-colors"
+                        onClick={() => applyDomainSuffix('live4.utcc.ac.th')}
+                        className="text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full cursor-pointer transition-colors border border-emerald-200"
                       >
-                        @utcc.ac.th
+                        @live4.utcc.ac.th
                       </button>
                     </div>
                   </div>
                   <input
                     id="regEmail"
                     type="email"
-                    placeholder="yourname@gmail.com หรือ @utcc.ac.th"
+                    placeholder="yourname@gmail.com หรือ @live4.utcc.ac.th"
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
+                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regPassword">
-                      รหัสผ่าน (6+ ตัวอักษร)
-                    </label>
-                    <div className="relative">
-                      <input
-                        id="regPassword"
-                        type={showRegPassword ? 'text' : 'password'}
-                        placeholder="••••••"
-                        value={regPassword}
-                        onChange={(e) => setRegPassword(e.target.value)}
-                        disabled={isRegistering}
-                        className="w-full px-3.5 py-2.5 pr-8 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowRegPassword((p) => !p)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
-                        tabIndex={-1}
-                      >
-                        {showRegPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
+                {/* 5) รหัสผ่าน (6+ ตัวอักษร) พร้อมปุ่มเปิด-ปิดตา */}
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regPassword">
+                    5) รหัสผ่าน (6+ ตัวอักษร)
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="regPassword"
+                      type={showRegPassword ? 'text' : 'password'}
+                      placeholder="ตั้งรหัสผ่านอย่างน้อย 6 ตัวอักษร"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      disabled={isRegistering}
+                      className="w-full px-4 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword((p) => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                      tabIndex={-1}
+                      aria-label={showRegPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                    >
+                      {showRegPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                   </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regConfirm">
-                      ยืนยันรหัสผ่าน
-                    </label>
+                </div>
+
+                {/* 6) ยืนยันรหัสผ่าน พร้อมปุ่มเปิด-ปิดตา */}
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regConfirm">
+                    6) ยืนยันรหัสผ่าน
+                  </label>
+                  <div className="relative">
                     <input
                       id="regConfirm"
-                      type={showRegPassword ? 'text' : 'password'}
-                      placeholder="••••••"
+                      type={showRegConfirmPassword ? 'text' : 'password'}
+                      placeholder="กรอกรหัสผ่านเดิมอีกครั้ง"
                       value={regConfirmPassword}
                       onChange={(e) => setRegConfirmPassword(e.target.value)}
                       disabled={isRegistering}
-                      className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
+                      className="w-full px-4 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegConfirmPassword((p) => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                      tabIndex={-1}
+                      aria-label={showRegConfirmPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                    >
+                      {showRegConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                   </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={isRegistering}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm mt-1"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm mt-2"
                 >
                   {isRegistering ? (
                     <>
@@ -664,25 +730,26 @@ export default function Login() {
               </form>
 
               {/* Minimal Divider on Register */}
-              <div className="relative my-3.5">
+              <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-200" />
                 </div>
                 <div className="relative flex justify-center text-[10px]">
-                  <span className="bg-white/95 px-2 text-slate-400 font-medium">
-                    หรือสมัครด้วย Social Login
+                  <span className="bg-white px-2.5 text-slate-500 font-semibold">
+                    หรือสมัครด้วย Google
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              {/* Full Width Google Button for Register */}
+              <div>
                 <button
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={isRegistering || isSocialLoading !== null}
-                  className="bg-white hover:bg-slate-50 text-slate-700 font-bold py-2 px-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-center gap-1.5 text-xs cursor-pointer"
+                  className="w-full bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 font-bold py-2.5 px-3 rounded-2xl border border-slate-300 shadow-xs flex items-center justify-center gap-2 text-xs cursor-pointer"
                 >
-                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -700,21 +767,7 @@ export default function Login() {
                       d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                     />
                   </svg>
-                  Google
-                </button>
-                <button
-                  type="button"
-                  onClick={handleMicrosoftSignIn}
-                  disabled={isRegistering || isSocialLoading !== null}
-                  className="bg-white hover:bg-slate-50 text-slate-700 font-bold py-2 px-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-center gap-1.5 text-xs cursor-pointer"
-                >
-                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 21 21">
-                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                  </svg>
-                  Microsoft
+                  <span>สมัครด้วย Google</span>
                 </button>
               </div>
             </motion.div>
@@ -727,7 +780,7 @@ export default function Login() {
             <summary className="list-none hover:text-slate-600 transition-colors inline-flex items-center gap-1 select-none">
               <span>ℹ️ บัญชีทดสอบระบบ</span>
             </summary>
-            <div className="mt-2 p-2 bg-slate-50 rounded-xl border border-slate-200/60 text-left text-xs font-mono space-y-1">
+            <div className="mt-2 p-2 bg-slate-50 rounded-xl border border-slate-200 text-left text-xs font-mono space-y-1">
               <button
                 type="button"
                 onClick={() => {
@@ -739,7 +792,7 @@ export default function Login() {
                 title="คลิกเพื่อกรอกอัตโนมัติ"
               >
                 <span>🛡️ Admin: <strong className="text-slate-800">admin</strong></span>
-                <span className="bg-slate-200/80 text-slate-700 px-1.5 py-0.5 rounded text-[10px]">admin1234</span>
+                <span className="bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded text-[10px]">admin1234</span>
               </button>
               <button
                 type="button"
@@ -760,76 +813,92 @@ export default function Login() {
       </motion.div>
 
       {/* Bottom Minimal Footer */}
-      <div className="relative z-10 text-center text-[11px] text-white/80 font-medium mt-3 drop-shadow-xs">
+      <div className="relative z-10 text-center text-[11px] text-white/90 font-medium mt-3 drop-shadow-xs">
         University of the Thai Chamber of Commerce • UTCC Sport
       </div>
 
-      {/* Frosted Glass Forgot Password Modal */}
+      {/* ==================== 2-STEP INSTANT FORGOT PASSWORD MODAL ==================== */}
       <AnimatePresence>
         {isForgotModalOpen && (
           <div
-            className="fixed inset-0 bg-slate-900/30 backdrop-blur-md z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-50 flex items-center justify-center p-4"
             onClick={closeForgotModal}
           >
             <motion.div
-              className="bg-white/95 backdrop-blur-3xl rounded-[2rem] p-6 sm:p-7 max-w-sm sm:max-w-md w-full shadow-[0_24px_60px_rgba(15,23,42,0.25)] relative border border-white/80"
-              initial={{ scale: 0.92, opacity: 0, y: 12 }}
+              className="bg-white rounded-3xl p-6 sm:p-7 max-w-sm sm:max-w-md w-full shadow-2xl relative border border-slate-200"
+              initial={{ scale: 0.94, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.92, opacity: 0, y: 12 }}
+              exit={{ scale: 0.94, opacity: 0, y: 10 }}
               onClick={(e) => e.stopPropagation()}
             >
               <button
                 type="button"
                 onClick={closeForgotModal}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 cursor-pointer p-1"
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 cursor-pointer p-1 rounded-full hover:bg-slate-100 transition-colors"
                 aria-label="ปิดหน้าต่าง"
               >
                 <X size={18} />
               </button>
 
-              <div className="flex items-center gap-3 mb-3">
+              {/* Header Modal */}
+              <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-800 shrink-0">
-                  <Mail size={18} />
+                  <KeyRound size={20} />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-black text-slate-900">ขอรับลิงก์รีเซ็ตรหัสผ่าน</h3>
-                  <p className="text-xs text-slate-500">กรอกอีเมลที่ใช้ลงทะเบียนไว้ในระบบ</p>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900">
+                    {forgotStep === 1
+                      ? 'ลืมรหัสผ่าน (ขั้นตอนที่ 1/2)'
+                      : forgotStep === 2
+                      ? 'ตั้งรหัสผ่านใหม่ (ขั้นตอนที่ 2/2)'
+                      : 'เปลี่ยนรหัสผ่านสำเร็จ'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {forgotStep === 1
+                      ? 'ยืนยันตัวตนด้วยอีเมลและรหัสนักศึกษา'
+                      : forgotStep === 2
+                      ? `ผู้ใช้งาน: ${forgotUserName}`
+                      : 'คุณสามารถเข้าสู่ระบบด้วยรหัสผ่านใหม่ได้ทันที'}
+                  </p>
                 </div>
               </div>
 
-              {forgotResult ? (
-                <div className="text-center py-4">
-                  <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <MailCheck size={24} />
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-900 mb-1">ส่งคำขอเรียบร้อยแล้ว</h4>
-                  <p className="text-xs text-slate-600 mb-5 leading-relaxed">{forgotResult.message}</p>
-                  <button
-                    type="button"
-                    onClick={closeForgotModal}
-                    className="w-full bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs cursor-pointer"
-                  >
-                    ปิดหน้าต่าง
-                  </button>
+              {/* Error Alert in Modal */}
+              {forgotError && (
+                <div className="flex items-start gap-2 bg-red-50 text-red-700 text-xs p-2.5 rounded-xl border border-red-200 mb-3">
+                  <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                  <span>{forgotError}</span>
                 </div>
-              ) : (
-                <form onSubmit={handleForgotSubmit} className="space-y-3 mt-3">
-                  {forgotEmailError && (
-                    <div className="flex items-start gap-2 bg-red-50 text-red-700 text-xs p-2.5 rounded-xl border border-red-200">
-                      <AlertCircle size={15} className="shrink-0 mt-0.5" />
-                      <span>{forgotEmailError}</span>
-                    </div>
-                  )}
+              )}
 
+              {/* STEP 1: ยืนยันตัวตน (อีเมล + รหัสนักศึกษา) */}
+              {forgotStep === 1 && (
+                <form onSubmit={handleVerifyIdentity} className="space-y-3">
                   <div>
-                    <label className="text-xs font-bold text-slate-800 block mb-1">อีเมลของคุณ</label>
+                    <label className="text-xs font-bold text-slate-800 block mb-1">
+                      อีเมลของคุณ
+                    </label>
                     <input
                       type="email"
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
-                      placeholder="เช่น student@utcc.ac.th หรือ yourname@gmail.com"
+                      placeholder="เช่น yourname@gmail.com หรือ student@utcc.ac.th"
                       disabled={isForgotSubmitting}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 block mb-1">
+                      รหัสนักศึกษา / บัญชีผู้ใช้
+                    </label>
+                    <input
+                      type="text"
+                      value={forgotStudentId}
+                      onChange={(e) => setForgotStudentId(e.target.value)}
+                      placeholder="เช่น 2410511101055 หรือ admin"
+                      disabled={isForgotSubmitting}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
                     />
                   </div>
 
@@ -845,18 +914,126 @@ export default function Login() {
                     <button
                       type="submit"
                       disabled={isForgotSubmitting}
-                      className="w-1/2 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-1/2 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                     >
                       {isForgotSubmitting ? (
                         <>
-                          <Loader2 size={14} className="animate-spin" /> กำลังส่ง...
+                          <Loader2 size={14} className="animate-spin" /> กำลังตรวจสอบ...
                         </>
                       ) : (
-                        'ส่งลิงก์รีเซ็ต'
+                        <>
+                          ตรวจสอบข้อมูล <ArrowRight size={14} />
+                        </>
                       )}
                     </button>
                   </div>
                 </form>
+              )}
+
+              {/* STEP 2: ตั้งรหัสผ่านใหม่ (รหัสผ่านใหม่ + ยืนยันรหัสผ่านใหม่) */}
+              {forgotStep === 2 && (
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-3">
+                  <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-900 font-medium">
+                    ✓ ยืนยันตัวตนสำเร็จ: <strong>{forgotUserName}</strong>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 block mb-1">
+                      รหัสผ่านใหม่ (6+ ตัวอักษร)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showForgotNewPassword ? 'text' : 'password'}
+                        value={forgotNewPassword}
+                        onChange={(e) => setForgotNewPassword(e.target.value)}
+                        placeholder="ตั้งรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร"
+                        disabled={isForgotSubmitting}
+                        className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowForgotNewPassword((p) => !p)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                        tabIndex={-1}
+                      >
+                        {showForgotNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 block mb-1">
+                      ยืนยันรหัสผ่านใหม่
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showForgotConfirmPassword ? 'text' : 'password'}
+                        value={forgotConfirmPassword}
+                        onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                        placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
+                        disabled={isForgotSubmitting}
+                        className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowForgotConfirmPassword((p) => !p)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                        tabIndex={-1}
+                      >
+                        {showForgotConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setForgotStep(1)}
+                      disabled={isForgotSubmitting}
+                      className="w-1/3 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      <ArrowLeft size={13} /> ย้อนกลับ
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isForgotSubmitting}
+                      className="w-2/3 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      {isForgotSubmitting ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> กำลังบันทึก...
+                        </>
+                      ) : (
+                        'บันทึกรหัสผ่านใหม่'
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* STEP 3: แจ้งเตือนสำเร็จพร้อมเข้าสู่ระบบ */}
+              {forgotStep === 3 && (
+                <div className="text-center py-4">
+                  <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3 shadow-inner">
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <h4 className="text-base font-bold text-slate-900 mb-1">เปลี่ยนรหัสผ่านสำเร็จ!</h4>
+                  <p className="text-xs text-slate-600 mb-5 leading-relaxed">
+                    ระบบได้อัปเดตรหัสผ่านใหม่ของคุณเรียบร้อยแล้ว คุณสามารถเข้าสู่ระบบได้ทันที
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdentifier(forgotStudentId || forgotEmail);
+                      setPassword('');
+                      setMode('login');
+                      closeForgotModal();
+                    }}
+                    className="w-full bg-slate-900 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs cursor-pointer shadow-md transition-all flex items-center justify-center gap-2"
+                  >
+                    เข้าสู่ระบบด้วยรหัสผ่านใหม่ <ArrowRight size={15} />
+                  </button>
+                </div>
               )}
             </motion.div>
           </div>

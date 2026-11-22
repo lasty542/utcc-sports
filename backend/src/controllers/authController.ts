@@ -615,6 +615,123 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
   }
 }
 
+// ตรวจสอบตัวตนผู้ใช้ด้วยอีเมลและรหัสนักศึกษา เพื่อรีเซ็ตรหัสผ่านได้ทันทีโดยไม่ต้องพึ่งอีเมล
+export async function verifyResetIdentity(req: Request, res: Response): Promise<void> {
+  const email = readString(req.body?.email).toLowerCase();
+  const studentId = readString(req.body?.studentId);
+
+  if (!email || !studentId) {
+    res.status(400).json({ message: 'กรุณากรอกทั้งอีเมลและรหัสนักศึกษา/ชื่อผู้ใช้' });
+    return;
+  }
+
+  try {
+    const found = await pool.query<{ id: number; name: string; student_id: string; email: string }>(
+      `SELECT id, name, student_id, email FROM users
+       WHERE LOWER(email) = LOWER($1) AND (student_id = $2 OR LOWER(email) = LOWER($2))
+       LIMIT 1`,
+      [email, studentId]
+    );
+
+    const user = found.rows[0];
+    if (!user) {
+      res.status(404).json({
+        message: 'ไม่พบข้อมูลที่ตรงกัน กรุณาตรวจสอบอีเมลและรหัสนักศึกษาให้ถูกต้อง',
+      });
+      return;
+    }
+
+    // สร้าง reset token ชั่วคราว (15 นาที) สำหรับเปลี่ยนรหัสผ่าน
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+    await pool.query(
+      `UPDATE users
+       SET reset_token_hash = $1,
+           reset_token_expires = NOW() + INTERVAL '15 minutes'
+       WHERE id = $2`,
+      [tokenHash, user.id]
+    );
+
+    res.json({
+      success: true,
+      token: rawToken,
+      name: user.name,
+      message: `ยืนยันตัวตนสำเร็จ (${user.name}) กรุณาตั้งรหัสผ่านใหม่`,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการตรวจสอบข้อมูล' });
+  }
+}
+
+// บันทึกรหัสผ่านใหม่ทันทีหลังจากยืนยันตัวตนสำเร็จ
+export async function instantResetPassword(req: Request, res: Response): Promise<void> {
+  const token = readString(req.body?.token);
+  const email = readString(req.body?.email).toLowerCase();
+  const studentId = readString(req.body?.studentId);
+  const newPassword = readString(req.body?.newPassword);
+
+  if (!newPassword || newPassword.length < 6) {
+    res.status(400).json({ message: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' });
+    return;
+  }
+
+  try {
+    let userId: number | null = null;
+
+    if (token) {
+      const tokenHash = createHash('sha256').update(token).digest('hex');
+      const found = await pool.query<{ id: number }>(
+        `SELECT id FROM users
+         WHERE reset_token_hash = $1 AND reset_token_expires > NOW()
+         LIMIT 1`,
+        [tokenHash]
+      );
+      if (found.rows[0]) {
+        userId = found.rows[0].id;
+      }
+    }
+
+    if (!userId && email && studentId) {
+      const found = await pool.query<{ id: number }>(
+        `SELECT id FROM users
+         WHERE LOWER(email) = LOWER($1) AND (student_id = $2 OR LOWER(email) = LOWER($2))
+         LIMIT 1`,
+        [email, studentId]
+      );
+      if (found.rows[0]) {
+        userId = found.rows[0].id;
+      }
+    }
+
+    if (!userId) {
+      res.status(400).json({
+        message: 'การยืนยันตัวตนไม่ถูกต้องหรือหมดอายุแล้ว กรุณาลองใหม่อีกครั้ง',
+      });
+      return;
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $1,
+           reset_token_hash = NULL,
+           reset_token_expires = NULL
+       WHERE id = $2`,
+      [newHash, userId]
+    );
+
+    res.json({
+      success: true,
+      message: 'เปลี่ยนรหัสผ่านสำเร็จเรียบร้อย สามารถเข้าสู่ระบบด้วยรหัสผ่านใหม่ได้ทันที',
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองใหม่' });
+  }
+}
+
 // Helper สำหรับค้นหาหรือสร้างผู้ใช้จาก Social Login (Microsoft / Google)
 async function findOrCreateOAuthUser(data: {
   email: string;

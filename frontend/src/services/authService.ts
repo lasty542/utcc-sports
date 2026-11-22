@@ -117,6 +117,26 @@ export const authService = {
     return data;
   },
 
+  // ยืนยันตัวตนด้วยอีเมลและรหัสนักศึกษา เพื่อรีเซ็ตรหัสผ่านทันที (ไม่ต้องพึ่งอีเมล)
+  async verifyResetIdentity(email: string, studentId: string): Promise<{ success: boolean; token: string; name: string; message: string }> {
+    const { data } = await api.post<{ success: boolean; token: string; name: string; message: string }>('/auth/verify-reset-identity', {
+      email,
+      studentId,
+    });
+    return data;
+  },
+
+  // บันทึกรหัสผ่านใหม่ทันที (Instant Password Reset)
+  async instantResetPassword(payload: {
+    token?: string;
+    email?: string;
+    studentId?: string;
+    newPassword: string;
+  }): Promise<{ success: boolean; message: string }> {
+    const { data } = await api.post<{ success: boolean; message: string }>('/auth/instant-reset-password', payload);
+    return data;
+  },
+
   // ตั้งรหัสผ่านใหม่ด้วย Token จากอีเมล
   async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
     const { data } = await api.post<{ message: string }>('/auth/reset-password', {
