@@ -96,13 +96,13 @@ const BORROW_SELECT = `
     u.student_id,
     u.name AS user_name,
     e.name AS equipment,
-    b.quantity,
+    COALESCE(b.quantity, 1)::int AS quantity,
     b.purpose,
-    b.borrow_date::text AS borrow_date,
-    b.due_date::text AS due_date,
+    COALESCE(b.borrow_date::text, CURRENT_DATE::text) AS borrow_date,
+    COALESCE(b.due_date::text, b.return_date::text, (CURRENT_DATE + INTERVAL '1 day')::date::text) AS due_date,
     b.status,
-    b.item_codes,
-    (b.status IN ('borrowing', 'borrowed') AND b.due_date < CURRENT_DATE) AS is_overdue
+    COALESCE(b.item_codes, ARRAY[]::text[]) AS item_codes,
+    (b.status IN ('borrowing', 'borrowed') AND COALESCE(b.due_date, b.return_date, CURRENT_DATE) < CURRENT_DATE) AS is_overdue
   FROM borrows b
   JOIN users u ON u.id = b.user_id
   JOIN equipment e ON e.id = b.equipment_id
@@ -124,7 +124,7 @@ export async function getUserQuota(req: Request, res: Response): Promise<void> {
       `SELECT
          COALESCE(SUM(quantity), 0)::int AS current_items,
          COUNT(*)::int AS current_requests,
-         COALESCE(BOOL_OR(due_date < CURRENT_DATE), false) AS has_overdue
+         COALESCE(BOOL_OR(COALESCE(due_date, return_date, CURRENT_DATE) < CURRENT_DATE), false) AS has_overdue
        FROM borrows
        WHERE user_id = $1 AND status IN ('pending', 'approved', 'borrowing', 'borrowed')`,
       [req.user.id]
@@ -147,9 +147,13 @@ export async function getUserQuota(req: Request, res: Response): Promise<void> {
       hasOverdue,
       canBorrow: !hasOverdue && currentItems < maxItems && currentRequests < maxRequests,
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลโควตาได้' });
+  } catch (error: any) {
+    console.error('Error in getUserQuota:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถดึงข้อมูลโควตาได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   }
 }
 
@@ -179,9 +183,13 @@ export async function listBorrows(req: Request, res: Response): Promise<void> {
       : await pool.query<BorrowRow>(`${BORROW_SELECT} WHERE b.user_id = $1 ORDER BY b.id DESC`, [req.user.id]);
 
     res.json({ borrows: result.rows.map(toBorrow) });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถโหลดรายการยืมได้' });
+  } catch (error: any) {
+    console.error('Error in listBorrows:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถโหลดรายการยืมได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   }
 }
 
@@ -241,9 +249,13 @@ export async function getQrToken(req: Request, res: Response): Promise<void> {
       secondsRemaining,
       borrow: null,
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถสร้างรหัส QR ได้' });
+  } catch (error: any) {
+    console.error('Error in getQrToken:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถสร้างรหัส QR ได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   }
 }
 
@@ -254,19 +266,24 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const equipmentId = Number(req.body?.equipmentId);
+  const equipmentId = Number(req.body?.equipmentId ?? req.body?.equipment_id);
   const quantity = Number(req.body?.quantity ?? req.body?.qty);
   const purpose = readString(req.body?.purpose);
-  const borrowDate = readString(req.body?.borrowDate);
-  const dueDate = readString(req.body?.dueDate ?? req.body?.returnDate);
+  const rawBorrowDate = readString(req.body?.borrowDate ?? req.body?.borrow_date);
+  const rawDueDate = readString(req.body?.dueDate ?? req.body?.due_date ?? req.body?.returnDate ?? req.body?.return_date);
+  const timeSlot = readString(req.body?.timeSlot ?? req.body?.time_slot);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const borrowDate = isDateString(rawBorrowDate) ? rawBorrowDate : todayStr;
+  const dueDate = isDateString(rawDueDate) ? rawDueDate : borrowDate;
 
   if (!Number.isInteger(equipmentId) || !Number.isInteger(quantity) || quantity < 1) {
-    res.status(400).json({ message: 'ระบุอุปกรณ์และจำนวนที่ต้องการยืม' });
+    res.status(400).json({ message: 'ระบุอุปกรณ์และจำนวนที่ต้องการยืมให้ถูกต้อง' });
     return;
   }
 
-  if (!isDateString(borrowDate) || !isDateString(dueDate) || dueDate < borrowDate) {
-    res.status(400).json({ message: 'ระบุวันที่ยืมและกำหนดคืนในรูปแบบ YYYY-MM-DD' });
+  if (dueDate < borrowDate) {
+    res.status(400).json({ message: 'วันที่กำหนดส่งคืนต้องไม่ย้อนหลังกว่าวันที่รับอุปกรณ์' });
     return;
   }
 
@@ -275,7 +292,7 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     `SELECT COUNT(*)::int AS count
      FROM borrows
      WHERE user_id = $1 AND status IN ('pending', 'approved', 'borrowing', 'borrowed')
-       AND due_date < CURRENT_DATE`,
+       AND COALESCE(due_date, return_date, CURRENT_DATE) < CURRENT_DATE`,
     [req.user.id]
   );
   if ((overdueCheck.rows[0]?.count ?? 0) > 0) {
@@ -316,8 +333,9 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
   try {
     await client.query('BEGIN');
 
-    const equipment = await client.query<{ id: number; available_qty: number }>(
-      'SELECT id, available_qty FROM equipment WHERE id = $1 FOR UPDATE',
+    // ตรวจสอบและล็อกแถวอุปกรณ์
+    const equipment = await client.query<{ id: number; total_qty: number; available_qty: number }>(
+      'SELECT id, total_qty, available_qty FROM equipment WHERE id = $1 FOR UPDATE',
       [equipmentId]
     );
     const item = equipment.rows[0];
@@ -335,7 +353,7 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     }
 
     // เลือกรหัสประจำชิ้น (Serial Items) ที่ว่างอยู่พร้อมล็อกแถว FOR UPDATE ป้องกันการแย่งชิ้นเดียวกัน
-    const serialQuery = await client.query<{ id: number; item_code: string }>(
+    let serialQuery = await client.query<{ id: number; item_code: string }>(
       `SELECT id, item_code
        FROM equipment_items
        WHERE equipment_id = $1 AND status = 'available'
@@ -345,36 +363,55 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
       [equipmentId, quantity]
     );
 
+    // หาก serial items ในฐานข้อมูลยังไม่ครบ ให้สร้างเพิ่มอัตโนมัติทันที
     if (serialQuery.rows.length < quantity) {
-      await client.query('ROLLBACK');
-      res.status(409).json({ message: 'รหัสอุปกรณ์รายชิ้นที่พร้อมใช้งานไม่เพียงพอ' });
-      return;
+      const targetCount = Math.max(item.total_qty || 10, quantity);
+      for (let i = 1; i <= targetCount; i++) {
+        const itemCode = `EQ-${String(equipmentId).padStart(3, '0')}-${String(i).padStart(2, '0')}`;
+        await client.query(
+          `INSERT INTO equipment_items (equipment_id, item_code, status)
+           VALUES ($1, $2, 'available')
+           ON CONFLICT (item_code) DO NOTHING`,
+          [equipmentId, itemCode]
+        );
+      }
+      serialQuery = await client.query<{ id: number; item_code: string }>(
+        `SELECT id, item_code
+         FROM equipment_items
+         WHERE equipment_id = $1 AND status = 'available'
+         ORDER BY id ASC
+         LIMIT $2
+         FOR UPDATE`,
+        [equipmentId, quantity]
+      );
     }
 
     const itemCodes = serialQuery.rows.map((r) => r.item_code);
     const itemIds = serialQuery.rows.map((r) => r.id);
 
     await client.query(
-      'UPDATE equipment SET available_qty = available_qty - $1 WHERE id = $2',
+      'UPDATE equipment SET available_qty = GREATEST(0, available_qty - $1) WHERE id = $2',
       [quantity, equipmentId]
     );
     await refreshEquipmentStatus(client, equipmentId);
 
     const inserted = await client.query<{ id: number }>(
-      `INSERT INTO borrows (user_id, equipment_id, quantity, purpose, borrow_date, due_date, status, item_codes)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+      `INSERT INTO borrows (user_id, equipment_id, quantity, purpose, borrow_date, due_date, return_date, time_slot, status, item_codes)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'pending', $8)
        RETURNING id`,
-      [req.user.id, equipmentId, quantity, purpose || null, borrowDate, dueDate, itemCodes]
+      [req.user.id, equipmentId, quantity, purpose || null, borrowDate, dueDate, timeSlot || null, itemCodes]
     );
     const borrowId = inserted.rows[0]?.id;
 
     // ผูกรหัสประจำชิ้นเข้ากับคำขอนี้
-    await client.query(
-      `UPDATE equipment_items
-       SET status = 'reserved', borrow_id = $1
-       WHERE id = ANY($2::int[])`,
-      [borrowId, itemIds]
-    );
+    if (itemIds.length > 0) {
+      await client.query(
+        `UPDATE equipment_items
+         SET status = 'reserved', borrow_id = $1
+         WHERE id = ANY($2::int[])`,
+        [borrowId, itemIds]
+      );
+    }
 
     await client.query('COMMIT');
 
@@ -386,10 +423,14 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     }
 
     res.status(201).json({ borrow: toBorrow(borrow) });
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถบันทึกการยืมได้' });
+    console.error('Error in createBorrow:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถบันทึกการยืมได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   } finally {
     client.release();
   }
@@ -466,10 +507,14 @@ export async function confirmPickup(req: Request, res: Response): Promise<void> 
       message: `ยืนยันรับอุปกรณ์ "${row.equipment}" เรียบร้อยแล้ว`,
       borrow: toBorrow(row),
     });
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถยืนยันรับอุปกรณ์ได้' });
+    console.error('Error in confirmPickup:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถยืนยันรับอุปกรณ์ได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   } finally {
     client.release();
   }
@@ -557,10 +602,14 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       message: `บันทึกการส่งคืนอุปกรณ์ "${row.equipment}" เรียบร้อยแล้ว`,
       borrow: toBorrow(row),
     });
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถบันทึกการคืนได้' });
+    console.error('Error in returnBorrow:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถบันทึกการคืนได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   } finally {
     client.release();
   }
@@ -791,9 +840,13 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
           : `ยืนยันการคืนอุปกรณ์ "${row.equipment}" สำเร็จ`,
       borrow: toBorrow(row),
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถดำเนินการสแกนได้' });
+  } catch (error: any) {
+    console.error('Error in verifyScan:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถดำเนินการสแกนได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   }
 }
 
@@ -830,10 +883,14 @@ export async function deleteBorrow(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    if (borrow.status === 'pending' || borrow.status === 'borrowing') {
+    if (borrow.status === 'pending' || borrow.status === 'borrowing' || borrow.status === 'approved') {
       await client.query(
         'UPDATE equipment SET available_qty = available_qty + $1 WHERE id = $2',
         [borrow.quantity, borrow.equipment_id]
+      );
+      await client.query(
+        `UPDATE equipment_items SET status = 'available', borrow_id = NULL WHERE borrow_id = $1`,
+        [borrow.id]
       );
       await refreshEquipmentStatus(client, borrow.equipment_id);
     }
@@ -841,10 +898,14 @@ export async function deleteBorrow(req: Request, res: Response): Promise<void> {
     await client.query('DELETE FROM borrows WHERE id = $1', [borrow.id]);
     await client.query('COMMIT');
     res.json({ message: 'ลบรายการยืมแล้ว' });
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error(error);
-    res.status(500).json({ message: 'ไม่สามารถลบรายการยืมได้' });
+    console.error('Error in deleteBorrow:', error);
+    res.status(500).json({
+      message: 'ไม่สามารถลบรายการยืมได้',
+      error: error?.message || String(error),
+      detail: error?.detail,
+    });
   } finally {
     client.release();
   }

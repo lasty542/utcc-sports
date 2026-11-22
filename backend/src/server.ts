@@ -4,7 +4,7 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
-import { initDatabase, pool } from './config/db';
+import { autoMigrateDatabase, initDatabase, pool } from './config/db';
 import authRoutes from './routes/authRoutes';
 import borrowRoutes from './routes/borrowRoutes';
 import equipRoutes from './routes/equipRoutes';
@@ -91,17 +91,18 @@ app.use((_req, res) => {
   res.status(404).json({ message: 'ไม่พบเส้นทางที่เรียก' });
 });
 
-// เตรียมฐานข้อมูลและสั่งรัน HTTP Server บนพอร์ตที่กำหนด
+// เตรียมฐานข้อมูล รัน Auto-Migration และสั่งรัน HTTP Server บนพอร์ตที่กำหนด
 async function main(): Promise<void> {
   if (!process.env.JWT_SECRET) {
     console.error('JWT_SECRET is not set. Copy backend/.env.example to backend/.env');
   }
 
   try {
-    await initDatabase();
-    console.log('PostgreSQL schema is ready');
+    console.log('Running auto-migration for PostgreSQL...');
+    await autoMigrateDatabase();
+    console.log('PostgreSQL schema and auto-migration ready');
   } catch (error) {
-    console.error('PostgreSQL is not ready. Check DATABASE_URL and that the database exists.');
+    console.error('PostgreSQL migration warning. Check DATABASE_URL and that the database exists.');
     console.error(error);
   }
 

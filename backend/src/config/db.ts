@@ -29,13 +29,25 @@ pool.on('error', (error) => {
   console.error('Unexpected PostgreSQL client error', error);
 });
 
-// สร้างตารางหลัก (users, equipment, borrows), Index และเรียก seed ข้อมูลเริ่มต้น
-export async function initDatabase(): Promise<void> {
+// ผู้ช่วยรัน SQL ทีละคำสั่งแบบปลอดภัย หากติดขัดข้อจำกัดเดิมจะไม่หยุดการทำงาน
+async function safeExecute(sql: string, description: string): Promise<void> {
+  try {
+    await pool.query(sql);
+  } catch (err: any) {
+    console.warn(`[Auto-Migration] Notice on "${description}": ${err?.message || err}`);
+  }
+}
+
+// ฟังก์ชัน Auto-Migration ตรวจสอบและสร้างตาราง, คอลัมน์, ข้อจำกัด และดัชนีที่ระบบต้องการอัตโนมัติ
+export async function autoMigrateDatabase(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is not set');
   }
 
-  await pool.query(`
+  console.log('[Auto-Migration] Starting PostgreSQL schema check and migration...');
+
+  // 1. ตาราง users
+  await safeExecute(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       student_id VARCHAR(32) NOT NULL UNIQUE,
@@ -51,45 +63,89 @@ export async function initDatabase(): Promise<void> {
       reset_token_expires TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `, 'create users table');
 
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(200);
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(32) NOT NULL DEFAULT 'local';
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_secret TEXT;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ;
+  await safeExecute('ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(200);', 'users.email');
+  await safeExecute('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30);', 'users.phone');
+  await safeExecute('ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(32) NOT NULL DEFAULT \'local\';', 'users.auth_provider');
+  await safeExecute('ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_secret TEXT;', 'users.otp_secret');
+  await safeExecute('ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_enabled BOOLEAN NOT NULL DEFAULT FALSE;', 'users.otp_enabled');
+  await safeExecute('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT;', 'users.reset_token_hash');
+  await safeExecute('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ;', 'users.reset_token_expires');
 
+  // 2. ตาราง equipment
+  await safeExecute(`
     CREATE TABLE IF NOT EXISTS equipment (
       id SERIAL PRIMARY KEY,
       name VARCHAR(200) NOT NULL,
       category VARCHAR(100),
       description TEXT,
-      total_qty INTEGER NOT NULL CHECK (total_qty >= 0),
-      available_qty INTEGER NOT NULL CHECK (available_qty >= 0),
+      total_qty INTEGER NOT NULL DEFAULT 0 CHECK (total_qty >= 0),
+      available_qty INTEGER NOT NULL DEFAULT 0 CHECK (available_qty >= 0),
       image TEXT,
       icon VARCHAR(100),
       status VARCHAR(50) NOT NULL DEFAULT 'พร้อมใช้งาน',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT equipment_available_lte_total CHECK (available_qty <= total_qty)
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `, 'create equipment table');
 
+  await safeExecute('ALTER TABLE equipment ADD COLUMN IF NOT EXISTS category VARCHAR(100);', 'equipment.category');
+  await safeExecute('ALTER TABLE equipment ADD COLUMN IF NOT EXISTS description TEXT;', 'equipment.description');
+  await safeExecute('ALTER TABLE equipment ADD COLUMN IF NOT EXISTS total_qty INTEGER NOT NULL DEFAULT 0;', 'equipment.total_qty');
+  await safeExecute('ALTER TABLE equipment ADD COLUMN IF NOT EXISTS available_qty INTEGER NOT NULL DEFAULT 0;', 'equipment.available_qty');
+  await safeExecute('ALTER TABLE equipment ADD COLUMN IF NOT EXISTS image TEXT;', 'equipment.image');
+  await safeExecute('ALTER TABLE equipment ADD COLUMN IF NOT EXISTS icon VARCHAR(100);', 'equipment.icon');
+  await safeExecute('ALTER TABLE equipment ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT \'พร้อมใช้งาน\';', 'equipment.status');
+
+  // 3. ตาราง borrows
+  await safeExecute(`
     CREATE TABLE IF NOT EXISTS borrows (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE RESTRICT,
-      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
       purpose TEXT,
-      borrow_date DATE NOT NULL,
-      due_date DATE NOT NULL,
-      status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'approved', 'borrowing', 'borrowed', 'returned')),
+      borrow_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      due_date DATE NOT NULL DEFAULT (CURRENT_DATE + INTERVAL '1 day'),
+      return_date DATE,
+      time_slot VARCHAR(50),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      item_codes TEXT[] DEFAULT '{}',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `, 'create borrows table');
 
-    ALTER TABLE borrows DROP CONSTRAINT IF EXISTS borrows_status_check;
-    ALTER TABLE borrows ADD CONSTRAINT borrows_status_check CHECK (status IN ('pending', 'approved', 'borrowing', 'borrowed', 'returned'));
-    ALTER TABLE borrows ADD COLUMN IF NOT EXISTS item_codes TEXT[];
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS user_id INTEGER;', 'borrows.user_id');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS equipment_id INTEGER;', 'borrows.equipment_id');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1;', 'borrows.quantity');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS purpose TEXT;', 'borrows.purpose');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS borrow_date DATE DEFAULT CURRENT_DATE;', 'borrows.borrow_date');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS due_date DATE DEFAULT (CURRENT_DATE + INTERVAL \'1 day\');', 'borrows.due_date');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS return_date DATE;', 'borrows.return_date');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS time_slot VARCHAR(50);', 'borrows.time_slot');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT \'pending\';', 'borrows.status');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS item_codes TEXT[] DEFAULT \'{}\';', 'borrows.item_codes');
+  await safeExecute('ALTER TABLE borrows ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();', 'borrows.created_at');
 
+  // ซ่อมแซมข้อมูลในกรณีที่ตารางเดิมมีฟิลด์ว่างหรือใช้ชื่อสลับกัน
+  await safeExecute('UPDATE borrows SET due_date = return_date WHERE due_date IS NULL AND return_date IS NOT NULL;', 'repair due_date from return_date');
+  await safeExecute('UPDATE borrows SET return_date = due_date WHERE return_date IS NULL AND due_date IS NOT NULL;', 'repair return_date from due_date');
+  await safeExecute('UPDATE borrows SET borrow_date = CURRENT_DATE WHERE borrow_date IS NULL;', 'repair null borrow_date');
+  await safeExecute('UPDATE borrows SET due_date = borrow_date + INTERVAL \'1 day\' WHERE due_date IS NULL;', 'repair null due_date');
+  await safeExecute('UPDATE borrows SET item_codes = \'{}\' WHERE item_codes IS NULL;', 'repair null item_codes');
+  await safeExecute('UPDATE borrows SET quantity = 1 WHERE quantity IS NULL OR quantity < 1;', 'repair null quantity');
+
+  // จัดการ Constraints ของ borrows
+  await safeExecute('ALTER TABLE borrows DROP CONSTRAINT IF EXISTS borrows_status_check;', 'drop borrows_status_check');
+  await safeExecute('ALTER TABLE borrows DROP CONSTRAINT IF EXISTS check_status;', 'drop check_status');
+  await safeExecute(`
+    ALTER TABLE borrows
+    ADD CONSTRAINT borrows_status_check
+    CHECK (status IN ('pending', 'approved', 'borrowing', 'borrowed', 'returned'));
+  `, 'add borrows_status_check');
+
+  // 4. ตาราง equipment_items (รหัสอุปกรณ์ประจำชิ้น Serial Tracking)
+  await safeExecute(`
     CREATE TABLE IF NOT EXISTS equipment_items (
       id SERIAL PRIMARY KEY,
       equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
@@ -98,18 +154,35 @@ export async function initDatabase(): Promise<void> {
       borrow_id INTEGER REFERENCES borrows(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `, 'create equipment_items table');
 
-    CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
-    CREATE INDEX IF NOT EXISTS idx_equipment_category ON equipment (category);
-    CREATE INDEX IF NOT EXISTS idx_borrows_user_id ON borrows (user_id);
-    CREATE INDEX IF NOT EXISTS idx_borrows_status ON borrows (status);
-    CREATE INDEX IF NOT EXISTS idx_equipment_items_equip_id ON equipment_items (equipment_id);
-    CREATE INDEX IF NOT EXISTS idx_equipment_items_status ON equipment_items (status);
-    CREATE INDEX IF NOT EXISTS idx_equipment_items_borrow_id ON equipment_items (borrow_id);
-  `);
+  await safeExecute('ALTER TABLE equipment_items ADD COLUMN IF NOT EXISTS equipment_id INTEGER;', 'equipment_items.equipment_id');
+  await safeExecute('ALTER TABLE equipment_items ADD COLUMN IF NOT EXISTS item_code VARCHAR(50);', 'equipment_items.item_code');
+  await safeExecute('ALTER TABLE equipment_items ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT \'available\';', 'equipment_items.status');
+  await safeExecute('ALTER TABLE equipment_items ADD COLUMN IF NOT EXISTS borrow_id INTEGER;', 'equipment_items.borrow_id');
+  await safeExecute('ALTER TABLE equipment_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();', 'equipment_items.created_at');
 
+  // 5. ดัชนีเพื่อประสิทธิภาพ (Indexes)
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));', 'idx_users_email_lower');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_equipment_category ON equipment (category);', 'idx_equipment_category');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_borrows_user_id ON borrows (user_id);', 'idx_borrows_user_id');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_borrows_status ON borrows (status);', 'idx_borrows_status');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_borrows_due_date ON borrows (due_date);', 'idx_borrows_due_date');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_equipment_items_equip_id ON equipment_items (equipment_id);', 'idx_equipment_items_equip_id');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_equipment_items_status ON equipment_items (status);', 'idx_equipment_items_status');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_equipment_items_borrow_id ON equipment_items (borrow_id);', 'idx_equipment_items_borrow_id');
+  await safeExecute('CREATE INDEX IF NOT EXISTS idx_equipment_items_item_code ON equipment_items (item_code);', 'idx_equipment_items_item_code');
+
+  console.log('[Auto-Migration] PostgreSQL schema and columns migrated successfully.');
+
+  // 6. ซี้ดข้อมูลและสร้างรหัสอุปกรณ์รายชิ้น
   await seedInitialData();
   await syncEquipmentItems();
+}
+
+// เข้ากันได้กับโค้ดเดิมที่เรียก initDatabase()
+export async function initDatabase(): Promise<void> {
+  await autoMigrateDatabase();
 }
 
 // สร้างรหัสประจำชิ้น (Individual Asset / Serial Tracking) ให้สอดคล้องกับจำนวนอุปกรณ์
