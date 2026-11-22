@@ -63,9 +63,33 @@ function isUniversityEmail(email: string): boolean {
   return isAllowedEmail(email);
 }
 
-// ดึง URL หลักของ Frontend สำหรับใช้สร้างลิงก์ Redirect / รีเซ็ตรหัสผ่าน
+// ดึง URL หลักของ Frontend และทำความสะอาดค่าอย่างปลอดภัย (ป้องกัน ERR_INVALID_REDIRECT)
 function getFrontendUrl(): string {
-  return (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  let raw = (process.env.FRONTEND_URL || 'http://localhost:5173').trim();
+  // ลบ single/double quotes ถ้ามี
+  raw = raw.replace(/^["']|["']$/g, '').trim();
+  // ตัดอักขระควบคุมช่องว่างและขึ้นบรรทัดใหม่ เช่น \r \n \t
+  raw = raw.replace(/[\r\n\t]/g, '').trim();
+  // หากไม่มีโปรโตคอล http:// หรือ https:// ให้เติม https:// นำหน้าเสมอ
+  if (!/^https?:\/\//i.test(raw)) {
+    raw = `https://${raw}`;
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+// สร้าง Safe Redirect URL ไปยัง Frontend โดยใช้คลาส URL ตามมาตรฐาน W3C/RFC 3986
+function buildFrontendRedirectUrl(path: string, params?: Record<string, string | undefined>): string {
+  const base = getFrontendUrl();
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(normalizedPath, base);
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+  return url.toString();
 }
 
 // สร้าง JWT Token อายุ 7 วันสำหรับผู้ใช้งาน
@@ -450,7 +474,7 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
       [tokenHash, user.id]
     );
 
-    const resetUrl = `${getFrontendUrl()}/reset-password?token=${rawToken}`;
+    const resetUrl = buildFrontendRedirectUrl('/reset-password', { token: rawToken });
 
     let mailSent = false;
     let mailError = '';
@@ -630,7 +654,6 @@ export function microsoftStatus(_req: Request, res: Response): void {
 // พาผู้ใช้ Redirect ไปยังหน้าล็อกอินของ Microsoft หรือเข้าสู่โหมดจำลอง (Demo Login)
 export async function microsoftAuth(_req: Request, res: Response): Promise<void> {
   const cfg = getMicrosoftConfig();
-  const frontendUrl = getFrontendUrl();
 
   // หากยังไม่ได้ตั้งค่า Client ID / Secret ใน .env ให้เข้าสู่โหมดจำลอง (Demo Login) ทันที
   if (!cfg.configured) {
@@ -642,11 +665,11 @@ export async function microsoftAuth(_req: Request, res: Response): Promise<void>
         fallbackStudentId: '2410511101055',
       });
       const appJwt = signToken(demoUser);
-      res.redirect(`${frontendUrl}/auth/microsoft/callback?token=${encodeURIComponent(appJwt)}&isDemo=true`);
+      res.redirect(302, buildFrontendRedirectUrl('/auth/microsoft/callback', { token: appJwt, isDemo: 'true' }));
       return;
     } catch (err) {
       console.error('Demo Microsoft login error:', err);
-      res.redirect(`${frontendUrl}/?msError=demo_failed`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'demo_failed' }));
       return;
     }
   }
@@ -674,32 +697,31 @@ export async function microsoftAuth(_req: Request, res: Response): Promise<void>
 // รับ Callback จาก Microsoft, แลก Token ดึงข้อมูลผู้ใช้ แล้วสร้าง/เข้าสู่ระบบพร้อมส่ง JWT กลับ Frontend
 export async function microsoftCallback(req: Request, res: Response): Promise<void> {
   const cfg = getMicrosoftConfig();
-  const frontendUrl = getFrontendUrl();
 
   const code = readString(req.query.code);
   const state = readString(req.query.state);
   const oauthError = readString(req.query.error);
 
   if (oauthError) {
-    res.redirect(`${frontendUrl}/?msError=${encodeURIComponent(oauthError)}`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { msError: oauthError }));
     return;
   }
 
   if (!cfg.configured || !code || !state) {
-    res.redirect(`${frontendUrl}/?msError=invalid_callback`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'invalid_callback' }));
     return;
   }
 
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    res.redirect(`${frontendUrl}/?msError=server_config`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'server_config' }));
     return;
   }
 
   try {
     const decodedState = jwt.verify(state, secret) as { purpose?: string };
     if (decodedState.purpose !== 'microsoft_oauth') {
-      res.redirect(`${frontendUrl}/?msError=invalid_state`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'invalid_state' }));
       return;
     }
 
@@ -720,7 +742,7 @@ export async function microsoftCallback(req: Request, res: Response): Promise<vo
 
     const tokenJson = (await tokenResp.json()) as { access_token?: string; error_description?: string };
     if (!tokenResp.ok || !tokenJson.access_token) {
-      res.redirect(`${frontendUrl}/?msError=token_exchange_failed`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'token_exchange_failed' }));
       return;
     }
 
@@ -736,7 +758,7 @@ export async function microsoftCallback(req: Request, res: Response): Promise<vo
 
     const email = (profile.mail || profile.userPrincipalName || '').trim().toLowerCase();
     if (!email || !isAllowedEmail(email)) {
-      res.redirect(`${frontendUrl}/?msError=invalid_email`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'invalid_email' }));
       return;
     }
 
@@ -747,10 +769,10 @@ export async function microsoftCallback(req: Request, res: Response): Promise<vo
     });
 
     const appJwt = signToken(user);
-    res.redirect(`${frontendUrl}/auth/microsoft/callback?token=${encodeURIComponent(appJwt)}`);
+    res.redirect(302, buildFrontendRedirectUrl('/auth/microsoft/callback', { token: appJwt }));
   } catch (error) {
     console.error('Microsoft OAuth error:', error);
-    res.redirect(`${frontendUrl}/?msError=oauth_failed`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'oauth_failed' }));
   }
 }
 
@@ -783,7 +805,6 @@ export function googleStatus(_req: Request, res: Response): void {
 // พาผู้ใช้ Redirect ไปยังหน้าล็อกอิน Google หรือเข้าสู่โหมดจำลอง (Demo Login)
 export async function googleAuth(_req: Request, res: Response): Promise<void> {
   const cfg = getGoogleConfig();
-  const frontendUrl = getFrontendUrl();
 
   // หากยังไม่ได้ตั้งค่า Google OAuth ใน .env ให้เข้าสู่โหมดจำลอง (Demo Login) ทันที
   if (!cfg.configured) {
@@ -795,11 +816,11 @@ export async function googleAuth(_req: Request, res: Response): Promise<void> {
         fallbackStudentId: 'google-demo-user',
       });
       const appJwt = signToken(demoUser);
-      res.redirect(`${frontendUrl}/auth/google/callback?token=${encodeURIComponent(appJwt)}&isDemo=true`);
+      res.redirect(302, buildFrontendRedirectUrl('/auth/google/callback', { token: appJwt, isDemo: 'true' }));
       return;
     } catch (err) {
       console.error('Demo Google login error:', err);
-      res.redirect(`${frontendUrl}/?googleError=demo_failed`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'demo_failed' }));
       return;
     }
   }
@@ -827,32 +848,31 @@ export async function googleAuth(_req: Request, res: Response): Promise<void> {
 // รับ Callback จาก Google, แลก Token ดึงข้อมูลผู้ใช้ แล้วสร้าง/เข้าสู่ระบบพร้อมส่ง JWT กลับ Frontend
 export async function googleCallback(req: Request, res: Response): Promise<void> {
   const cfg = getGoogleConfig();
-  const frontendUrl = getFrontendUrl();
 
   const code = readString(req.query.code);
   const state = readString(req.query.state);
   const oauthError = readString(req.query.error);
 
   if (oauthError) {
-    res.redirect(`${frontendUrl}/?googleError=${encodeURIComponent(oauthError)}`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: oauthError }));
     return;
   }
 
   if (!cfg.configured || !code || !state) {
-    res.redirect(`${frontendUrl}/?googleError=invalid_callback`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'invalid_callback' }));
     return;
   }
 
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    res.redirect(`${frontendUrl}/?googleError=server_config`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'server_config' }));
     return;
   }
 
   try {
     const decodedState = jwt.verify(state, secret) as { purpose?: string };
     if (decodedState.purpose !== 'google_oauth') {
-      res.redirect(`${frontendUrl}/?googleError=invalid_state`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'invalid_state' }));
       return;
     }
 
@@ -870,7 +890,7 @@ export async function googleCallback(req: Request, res: Response): Promise<void>
 
     const tokenJson = (await tokenResp.json()) as { access_token?: string; error_description?: string };
     if (!tokenResp.ok || !tokenJson.access_token) {
-      res.redirect(`${frontendUrl}/?googleError=token_exchange_failed`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'token_exchange_failed' }));
       return;
     }
 
@@ -885,7 +905,7 @@ export async function googleCallback(req: Request, res: Response): Promise<void>
 
     const email = (profile.email || '').trim().toLowerCase();
     if (!email || !isAllowedEmail(email)) {
-      res.redirect(`${frontendUrl}/?googleError=invalid_email`);
+      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'invalid_email' }));
       return;
     }
 
@@ -896,9 +916,9 @@ export async function googleCallback(req: Request, res: Response): Promise<void>
     });
 
     const appJwt = signToken(user);
-    res.redirect(`${frontendUrl}/auth/google/callback?token=${encodeURIComponent(appJwt)}`);
+    res.redirect(302, buildFrontendRedirectUrl('/auth/google/callback', { token: appJwt }));
   } catch (error) {
     console.error('Google OAuth error:', error);
-    res.redirect(`${frontendUrl}/?googleError=oauth_failed`);
+    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'oauth_failed' }));
   }
 }
