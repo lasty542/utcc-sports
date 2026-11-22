@@ -429,6 +429,8 @@ export async function createBorrow(req: Request, res: Response): Promise<void> {
     res.status(500).json({
       message: 'ไม่สามารถบันทึกการยืมได้',
       error: error?.message || String(error),
+      code: error?.code,
+      table: error?.table,
       detail: error?.detail,
     });
   } finally {
