@@ -74,44 +74,44 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#061a12] bg-gradient-to-b from-[#082419] via-[#061c13] to-[#030e08] font-sans flex items-center justify-center p-3 sm:p-6 py-6 sm:py-10 relative overflow-y-auto overflow-x-hidden text-slate-100 selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen min-h-[100dvh] w-full bg-[#061a12] bg-gradient-to-b from-[#082419] via-[#061c13] to-[#030e08] font-sans flex flex-col items-center justify-start sm:justify-center px-3 sm:px-6 pt-3 sm:pt-6 pb-6 relative overflow-y-auto overflow-x-hidden text-slate-100 selection:bg-emerald-500 selection:text-white">
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-600/15 via-transparent to-black/50 pointer-events-none z-0" />
 
-      <div className="relative z-10 w-full max-w-[440px] sm:max-w-[460px] mx-auto flex flex-col items-center my-auto">
+      <div className="relative z-10 w-full max-w-[420px] sm:max-w-[450px] mx-auto flex flex-col items-center sm:my-auto">
         {/* University Logo Card (Full Width matching login card) */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
-          className="w-full mb-3"
+          className="w-full mb-2 sm:mb-2.5"
         >
-          <div className="w-full bg-white/95 backdrop-blur-xl rounded-[24px] sm:rounded-[28px] py-4 sm:py-5 px-6 shadow-xl border border-white/80 flex items-center justify-center">
+          <div className="w-full bg-white/95 backdrop-blur-xl rounded-[20px] sm:rounded-[24px] py-2.5 sm:py-3.5 px-4 sm:px-6 shadow-lg border border-white/80 flex items-center justify-center">
             <img
               src="/UTCC_SubMain2-1.png"
               alt="มหาวิทยาลัยหอการค้าไทย (UTCC)"
-              className="h-16 sm:h-20 w-auto max-w-[85%] object-contain drop-shadow-xs transition-transform duration-300 hover:scale-[1.02]"
+              className="h-12 sm:h-15 w-auto max-w-[85%] object-contain drop-shadow-xs transition-transform duration-300 hover:scale-[1.02]"
             />
           </div>
         </motion.div>
 
         {/* Brand Header */}
-        <div className="w-full flex items-center justify-between mb-2.5 px-1">
-          <div className="inline-flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-200 shadow-md">
-            <Leaf className="text-emerald-600" size={16} />
-            <span className="text-xs font-black tracking-wider text-slate-900 uppercase">
+        <div className="w-full flex items-center justify-between mb-2 px-1">
+          <div className="inline-flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+            <Leaf className="text-emerald-600" size={14} />
+            <span className="text-[11px] font-black tracking-wider text-slate-900 uppercase">
               UTCC Sport<span className="text-emerald-600">®</span>
             </span>
           </div>
 
-          <div className="inline-flex items-center gap-1.5 bg-white/80 backdrop-blur-md border border-slate-200 text-slate-800 px-3 py-1 rounded-full text-[11px] font-bold shadow-xs">
-            <Sparkles size={12} className="text-emerald-600" />
+          <div className="inline-flex items-center gap-1 bg-white/80 backdrop-blur-md border border-slate-200 text-slate-800 px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold shadow-xs">
+            <Sparkles size={11} className="text-emerald-600" />
             <span>Sports Equipment Loan</span>
           </div>
         </div>
 
         {/* Main Card */}
         <motion.div
-          className="w-full bg-white/95 backdrop-blur-xl rounded-[28px] sm:rounded-[32px] p-5 sm:p-7 shadow-2xl border border-white/80 relative overflow-hidden"
+          className="w-full bg-white/95 backdrop-blur-xl rounded-[24px] sm:rounded-[28px] p-4 sm:p-6 shadow-2xl border border-white/80 relative overflow-hidden"
           initial={{ opacity: 0, scale: 0.98, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.22, ease: 'easeOut' }}
