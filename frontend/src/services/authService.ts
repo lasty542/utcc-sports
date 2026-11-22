@@ -134,7 +134,9 @@ export const authService = {
 
   // URL สำหรับเริ่มล็อกอินด้วย Microsoft
   getMicrosoftLoginUrl(): string {
-    return `${getApiBaseUrl()}/auth/microsoft`;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const qs = origin ? `?redirect=${encodeURIComponent(origin)}` : '';
+    return `${getApiBaseUrl()}/auth/microsoft${qs}`;
   },
 
   // ตรวจสอบสถานะการเชื่อมต่อ Google OAuth
@@ -145,7 +147,9 @@ export const authService = {
 
   // URL สำหรับเริ่มล็อกอินด้วย Google
   getGoogleLoginUrl(): string {
-    return `${getApiBaseUrl()}/auth/google`;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const qs = origin ? `?redirect=${encodeURIComponent(origin)}` : '';
+    return `${getApiBaseUrl()}/auth/google${qs}`;
   },
 
   // ออกจากระบบและล้างสถานะ

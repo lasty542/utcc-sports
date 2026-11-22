@@ -11,11 +11,18 @@ dotenv.config();
 types.setTypeParser(1082, (value) => value);
 
 const connectionString = process.env.DATABASE_URL;
+const isNeonOrCloud = Boolean(
+  connectionString?.includes('neon.tech') ||
+  connectionString?.includes('render.com') ||
+  connectionString?.includes('sslmode=require') ||
+  process.env.NODE_ENV === 'production'
+);
 
 export const pool = new Pool({
   connectionString,
   max: 10,
   idleTimeoutMillis: 30_000,
+  ssl: isNeonOrCloud ? { rejectUnauthorized: false } : undefined,
 });
 
 pool.on('error', (error) => {

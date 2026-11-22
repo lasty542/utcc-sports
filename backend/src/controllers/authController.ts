@@ -64,8 +64,8 @@ function isUniversityEmail(email: string): boolean {
 }
 
 // ดึง URL หลักของ Frontend และทำความสะอาดค่าอย่างปลอดภัย (ป้องกัน ERR_INVALID_REDIRECT)
-function getFrontendUrl(): string {
-  let raw = (process.env.FRONTEND_URL || 'http://localhost:5173').trim();
+function getFrontendUrl(customBase?: string): string {
+  let raw = (customBase || process.env.FRONTEND_URL || 'http://localhost:5173').trim();
   // ลบ single/double quotes ถ้ามี
   raw = raw.replace(/^["']|["']$/g, '').trim();
   // ตัดอักขระควบคุมช่องว่างและขึ้นบรรทัดใหม่ เช่น \r \n \t
@@ -78,8 +78,12 @@ function getFrontendUrl(): string {
 }
 
 // สร้าง Safe Redirect URL ไปยัง Frontend โดยใช้คลาส URL ตามมาตรฐาน W3C/RFC 3986
-function buildFrontendRedirectUrl(path: string, params?: Record<string, string | undefined>): string {
-  const base = getFrontendUrl();
+function buildFrontendRedirectUrl(
+  path: string,
+  params?: Record<string, string | undefined>,
+  customBase?: string
+): string {
+  const base = getFrontendUrl(customBase);
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(normalizedPath, base);
   if (params) {
@@ -90,6 +94,46 @@ function buildFrontendRedirectUrl(path: string, params?: Record<string, string |
     }
   }
   return url.toString();
+}
+
+/**
+ * ส่งการนำทางอย่างปลอดภัยไปยังเบราว์เซอร์ เพื่อป้องกันข้อผิดพลาด ERR_INVALID_REDIRECT ใน Chrome
+ * โดยส่ง HTTP 200 พร้อม meta refresh และ JavaScript window.location.replace
+ */
+function sendSafeRedirect(res: Response, targetUrl: string): void {
+  const safeTargetUrl = targetUrl.replace(/"/g, '&quot;');
+  res.status(200).send(`<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="0;url=${safeTargetUrl}">
+  <title>กำลังเปลี่ยนเส้นทาง...</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #1e293b; }
+    .box { text-align: center; padding: 2rem; background: #ffffff; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.05); max-width: 440px; }
+    .spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #0f172a; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1.5rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    a { color: #0284c7; text-decoration: none; font-weight: 600; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="spinner"></div>
+    <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem;">กำลังนำท่านกลับสู่ระบบ UTCC Sport...</h2>
+    <p style="font-size: 0.875rem; color: #64748b; margin-bottom: 1.25rem;">หากระบบไม่เปลี่ยนหน้าอัตโนมัติ กรุณาคลิกลิงก์ด้านล่าง</p>
+    <a href="${safeTargetUrl}">คลิกที่นี่เพื่อดำเนินการต่อ &rarr;</a>
+  </div>
+  <script>
+    try {
+      window.location.replace(${JSON.stringify(targetUrl)});
+    } catch (e) {
+      window.location.href = ${JSON.stringify(targetUrl)};
+    }
+  </script>
+</body>
+</html>`);
 }
 
 // สร้าง JWT Token อายุ 7 วันสำหรับผู้ใช้งาน
@@ -652,8 +696,9 @@ export function microsoftStatus(_req: Request, res: Response): void {
 }
 
 // พาผู้ใช้ Redirect ไปยังหน้าล็อกอินของ Microsoft หรือเข้าสู่โหมดจำลอง (Demo Login)
-export async function microsoftAuth(_req: Request, res: Response): Promise<void> {
+export async function microsoftAuth(req: Request, res: Response): Promise<void> {
   const cfg = getMicrosoftConfig();
+  const returnOrigin = readString(req.query.redirect) || readString(req.query.origin);
 
   // หากยังไม่ได้ตั้งค่า Client ID / Secret ใน .env ให้เข้าสู่โหมดจำลอง (Demo Login) ทันที
   if (!cfg.configured) {
@@ -665,11 +710,11 @@ export async function microsoftAuth(_req: Request, res: Response): Promise<void>
         fallbackStudentId: '2410511101055',
       });
       const appJwt = signToken(demoUser);
-      res.redirect(302, buildFrontendRedirectUrl('/auth/microsoft/callback', { token: appJwt, isDemo: 'true' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/auth/microsoft/callback', { token: appJwt, isDemo: 'true' }, returnOrigin));
       return;
     } catch (err) {
       console.error('Demo Microsoft login error:', err);
-      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'demo_failed' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: 'demo_failed' }, returnOrigin));
       return;
     }
   }
@@ -680,7 +725,7 @@ export async function microsoftAuth(_req: Request, res: Response): Promise<void>
     return;
   }
 
-  const state = jwt.sign({ purpose: 'microsoft_oauth' }, secret, { expiresIn: '10m' });
+  const state = jwt.sign({ purpose: 'microsoft_oauth', returnOrigin }, secret, { expiresIn: '10m' });
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     response_type: 'code',
@@ -703,27 +748,29 @@ export async function microsoftCallback(req: Request, res: Response): Promise<vo
   const oauthError = readString(req.query.error);
 
   if (oauthError) {
-    res.redirect(302, buildFrontendRedirectUrl('/', { msError: oauthError }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: oauthError }));
     return;
   }
 
   if (!cfg.configured || !code || !state) {
-    res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'invalid_callback' }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: 'invalid_callback' }));
     return;
   }
 
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'server_config' }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: 'server_config' }));
     return;
   }
 
+  let returnOrigin: string | undefined;
   try {
-    const decodedState = jwt.verify(state, secret) as { purpose?: string };
+    const decodedState = jwt.verify(state, secret) as { purpose?: string; returnOrigin?: string };
     if (decodedState.purpose !== 'microsoft_oauth') {
-      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'invalid_state' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: 'invalid_state' }));
       return;
     }
+    returnOrigin = decodedState.returnOrigin;
 
     const tokenResp = await fetch(
       `https://login.microsoftonline.com/${cfg.tenantId}/oauth2/v2.0/token`,
@@ -742,7 +789,7 @@ export async function microsoftCallback(req: Request, res: Response): Promise<vo
 
     const tokenJson = (await tokenResp.json()) as { access_token?: string; error_description?: string };
     if (!tokenResp.ok || !tokenJson.access_token) {
-      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'token_exchange_failed' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: 'token_exchange_failed' }, returnOrigin));
       return;
     }
 
@@ -758,7 +805,7 @@ export async function microsoftCallback(req: Request, res: Response): Promise<vo
 
     const email = (profile.mail || profile.userPrincipalName || '').trim().toLowerCase();
     if (!email || !isAllowedEmail(email)) {
-      res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'invalid_email' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: 'invalid_email' }, returnOrigin));
       return;
     }
 
@@ -769,10 +816,10 @@ export async function microsoftCallback(req: Request, res: Response): Promise<vo
     });
 
     const appJwt = signToken(user);
-    res.redirect(302, buildFrontendRedirectUrl('/auth/microsoft/callback', { token: appJwt }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/auth/microsoft/callback', { token: appJwt }, returnOrigin));
   } catch (error) {
     console.error('Microsoft OAuth error:', error);
-    res.redirect(302, buildFrontendRedirectUrl('/', { msError: 'oauth_failed' }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { msError: 'oauth_failed' }, returnOrigin));
   }
 }
 
@@ -803,8 +850,9 @@ export function googleStatus(_req: Request, res: Response): void {
 }
 
 // พาผู้ใช้ Redirect ไปยังหน้าล็อกอิน Google หรือเข้าสู่โหมดจำลอง (Demo Login)
-export async function googleAuth(_req: Request, res: Response): Promise<void> {
+export async function googleAuth(req: Request, res: Response): Promise<void> {
   const cfg = getGoogleConfig();
+  const returnOrigin = readString(req.query.redirect) || readString(req.query.origin);
 
   // หากยังไม่ได้ตั้งค่า Google OAuth ใน .env ให้เข้าสู่โหมดจำลอง (Demo Login) ทันที
   if (!cfg.configured) {
@@ -816,11 +864,11 @@ export async function googleAuth(_req: Request, res: Response): Promise<void> {
         fallbackStudentId: 'google-demo-user',
       });
       const appJwt = signToken(demoUser);
-      res.redirect(302, buildFrontendRedirectUrl('/auth/google/callback', { token: appJwt, isDemo: 'true' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/auth/google/callback', { token: appJwt, isDemo: 'true' }, returnOrigin));
       return;
     } catch (err) {
       console.error('Demo Google login error:', err);
-      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'demo_failed' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: 'demo_failed' }, returnOrigin));
       return;
     }
   }
@@ -831,7 +879,7 @@ export async function googleAuth(_req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const state = jwt.sign({ purpose: 'google_oauth' }, secret, { expiresIn: '10m' });
+  const state = jwt.sign({ purpose: 'google_oauth', returnOrigin }, secret, { expiresIn: '10m' });
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     redirect_uri: cfg.redirectUri,
@@ -854,27 +902,29 @@ export async function googleCallback(req: Request, res: Response): Promise<void>
   const oauthError = readString(req.query.error);
 
   if (oauthError) {
-    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: oauthError }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: oauthError }));
     return;
   }
 
   if (!cfg.configured || !code || !state) {
-    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'invalid_callback' }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: 'invalid_callback' }));
     return;
   }
 
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'server_config' }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: 'server_config' }));
     return;
   }
 
+  let returnOrigin: string | undefined;
   try {
-    const decodedState = jwt.verify(state, secret) as { purpose?: string };
+    const decodedState = jwt.verify(state, secret) as { purpose?: string; returnOrigin?: string };
     if (decodedState.purpose !== 'google_oauth') {
-      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'invalid_state' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: 'invalid_state' }));
       return;
     }
+    returnOrigin = decodedState.returnOrigin;
 
     const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -890,7 +940,7 @@ export async function googleCallback(req: Request, res: Response): Promise<void>
 
     const tokenJson = (await tokenResp.json()) as { access_token?: string; error_description?: string };
     if (!tokenResp.ok || !tokenJson.access_token) {
-      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'token_exchange_failed' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: 'token_exchange_failed' }, returnOrigin));
       return;
     }
 
@@ -905,7 +955,7 @@ export async function googleCallback(req: Request, res: Response): Promise<void>
 
     const email = (profile.email || '').trim().toLowerCase();
     if (!email || !isAllowedEmail(email)) {
-      res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'invalid_email' }));
+      sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: 'invalid_email' }, returnOrigin));
       return;
     }
 
@@ -916,9 +966,9 @@ export async function googleCallback(req: Request, res: Response): Promise<void>
     });
 
     const appJwt = signToken(user);
-    res.redirect(302, buildFrontendRedirectUrl('/auth/google/callback', { token: appJwt }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/auth/google/callback', { token: appJwt }, returnOrigin));
   } catch (error) {
     console.error('Google OAuth error:', error);
-    res.redirect(302, buildFrontendRedirectUrl('/', { googleError: 'oauth_failed' }));
+    sendSafeRedirect(res, buildFrontendRedirectUrl('/', { googleError: 'oauth_failed' }, returnOrigin));
   }
 }
