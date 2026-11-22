@@ -575,11 +575,11 @@ export default function Login() {
                 </div>
               )}
 
-              {/* ฟอร์มแนวตั้ง 1 ช่องต่อ 1 บรรทัด เรียงลำดับชัดเจน สะอาดตา */}
-              <form onSubmit={handleRegisterSubmit} className="space-y-2.5 sm:space-y-3 text-xs" noValidate>
+              {/* ฟอร์มแนวตั้ง 1 ช่องต่อ 1 บรรทัด เรียงลำดับชัดเจน กระชับพอดีหน้าจอ */}
+              <form onSubmit={handleRegisterSubmit} className="space-y-2 text-xs" noValidate>
                 {/* รหัสนักศึกษา */}
                 <div>
-                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regStudentId">
+                  <label className="block font-bold text-slate-800 mb-0.5" htmlFor="regStudentId">
                     รหัสนักศึกษา
                   </label>
                   <input
@@ -590,13 +590,13 @@ export default function Login() {
                     value={regStudentId}
                     onChange={(e) => setRegStudentId(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
                 {/* ชื่อจริง */}
                 <div>
-                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regFirstName">
+                  <label className="block font-bold text-slate-800 mb-0.5" htmlFor="regFirstName">
                     ชื่อจริง
                   </label>
                   <input
@@ -606,13 +606,13 @@ export default function Login() {
                     value={regFirstName}
                     onChange={(e) => setRegFirstName(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
                 {/* นามสกุล */}
                 <div>
-                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regLastName">
+                  <label className="block font-bold text-slate-800 mb-0.5" htmlFor="regLastName">
                     นามสกุล
                   </label>
                   <input
@@ -622,13 +622,13 @@ export default function Login() {
                     value={regLastName}
                     onChange={(e) => setRegLastName(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
                 {/* อีเมลติดต่อ (พร้อมปุ่มเติมโดเมนอัตโนมัติ) */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-0.5">
                     <label className="font-bold text-slate-800" htmlFor="regEmail">
                       อีเมลติดต่อ
                     </label>
@@ -636,14 +636,14 @@ export default function Login() {
                       <button
                         type="button"
                         onClick={() => applyDomainSuffix('gmail.com')}
-                        className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 px-2.5 py-0.5 rounded-full cursor-pointer transition-colors border border-slate-200"
+                        className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full cursor-pointer transition-colors border border-slate-200"
                       >
                         @gmail.com
                       </button>
                       <button
                         type="button"
                         onClick={() => applyDomainSuffix('live4.utcc.ac.th')}
-                        className="text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full cursor-pointer transition-colors border border-emerald-200"
+                        className="text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full cursor-pointer transition-colors border border-emerald-200"
                       >
                         @live4.utcc.ac.th
                       </button>
@@ -656,13 +656,13 @@ export default function Login() {
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
                     disabled={isRegistering}
-                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                   />
                 </div>
 
                 {/* รหัสผ่าน (6+ ตัวอักษร) พร้อมปุ่มเปิด-ปิดตา */}
                 <div>
-                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regPassword">
+                  <label className="block font-bold text-slate-800 mb-0.5" htmlFor="regPassword">
                     รหัสผ่าน (6+ ตัวอักษร)
                   </label>
                   <div className="relative">
@@ -673,12 +673,12 @@ export default function Login() {
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
                       disabled={isRegistering}
-                      className="w-full px-3.5 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                      className="w-full px-3.5 py-2 pr-10 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                     />
                     <button
                       type="button"
                       onClick={() => setShowRegPassword((p) => !p)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
                       tabIndex={-1}
                       aria-label={showRegPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
                     >
@@ -689,7 +689,7 @@ export default function Login() {
 
                 {/* ยืนยันรหัสผ่าน พร้อมปุ่มเปิด-ปิดตา */}
                 <div>
-                  <label className="block font-bold text-slate-800 mb-1" htmlFor="regConfirm">
+                  <label className="block font-bold text-slate-800 mb-0.5" htmlFor="regConfirm">
                     ยืนยันรหัสผ่าน
                   </label>
                   <div className="relative">
@@ -700,12 +700,12 @@ export default function Login() {
                       value={regConfirmPassword}
                       onChange={(e) => setRegConfirmPassword(e.target.value)}
                       disabled={isRegistering}
-                      className="w-full px-3.5 py-2.5 pr-10 rounded-2xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
+                      className="w-full px-3.5 py-2 pr-10 rounded-xl border border-slate-300 bg-white text-sm text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs transition-all"
                     />
                     <button
                       type="button"
                       onClick={() => setShowRegConfirmPassword((p) => !p)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
                       tabIndex={-1}
                       aria-label={showRegConfirmPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
                     >
@@ -717,15 +717,15 @@ export default function Login() {
                 <button
                   type="submit"
                   disabled={isRegistering}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm mt-2"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-2.5 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm mt-1.5"
                 >
                   {isRegistering ? (
                     <>
-                      <Loader2 size={17} className="animate-spin" /> กำลังสร้างบัญชี...
+                      <Loader2 size={16} className="animate-spin" /> กำลังสร้างบัญชี...
                     </>
                   ) : (
                     <>
-                      สมัครสมาชิกและเข้าใช้งาน <ArrowRight size={17} />
+                      สมัครสมาชิกและเข้าใช้งาน <ArrowRight size={16} />
                     </>
                   )}
                 </button>

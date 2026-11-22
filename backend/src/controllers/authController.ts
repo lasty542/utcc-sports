@@ -617,8 +617,8 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
 
 // ตรวจสอบตัวตนผู้ใช้ด้วยอีเมลและรหัสนักศึกษา เพื่อรีเซ็ตรหัสผ่านได้ทันทีโดยไม่ต้องพึ่งอีเมล
 export async function verifyResetIdentity(req: Request, res: Response): Promise<void> {
-  const email = readString(req.body?.email).toLowerCase();
-  const studentId = readString(req.body?.studentId);
+  const email = readString(req.body?.email).trim().toLowerCase();
+  const studentId = readString(req.body?.studentId).trim();
 
   if (!email || !studentId) {
     res.status(400).json({ message: 'กรุณากรอกทั้งอีเมลและรหัสนักศึกษา/ชื่อผู้ใช้' });
@@ -626,50 +626,83 @@ export async function verifyResetIdentity(req: Request, res: Response): Promise<
   }
 
   try {
-    const found = await pool.query<{ id: number; name: string; student_id: string; email: string }>(
+    // 1. ค้นหาผู้ใช้ที่ตรงทั้งสองเงื่อนไขพร้อมกัน (เปรียบเทียบแบบ TRIM และ LOWER)
+    const exactMatch = await pool.query<{ id: number; name: string; student_id: string; email: string }>(
       `SELECT id, name, student_id, email FROM users
-       WHERE LOWER(email) = LOWER($1) AND (student_id = $2 OR LOWER(email) = LOWER($2))
+       WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+         AND (TRIM(student_id) = TRIM($2) OR LOWER(TRIM(email)) = LOWER(TRIM($2)))
        LIMIT 1`,
       [email, studentId]
     );
 
-    const user = found.rows[0];
-    if (!user) {
-      res.status(404).json({
-        message: 'ไม่พบข้อมูลที่ตรงกัน กรุณาตรวจสอบอีเมลและรหัสนักศึกษาให้ถูกต้อง',
+    if (exactMatch.rows[0]) {
+      const user = exactMatch.rows[0];
+      const rawToken = randomBytes(32).toString('hex');
+      const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+      await pool.query(
+        `UPDATE users
+         SET reset_token_hash = $1,
+             reset_token_expires = NOW() + INTERVAL '15 minutes'
+         WHERE id = $2`,
+        [tokenHash, user.id]
+      );
+
+      res.json({
+        success: true,
+        token: rawToken,
+        name: user.name,
+        studentId: user.student_id,
+        email: user.email,
+        message: `ยืนยันตัวตนสำเร็จ (${user.name}) กรุณาตั้งรหัสผ่านใหม่`,
       });
       return;
     }
 
-    // สร้าง reset token ชั่วคราว (15 นาที) สำหรับเปลี่ยนรหัสผ่าน
-    const rawToken = randomBytes(32).toString('hex');
-    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-
-    await pool.query(
-      `UPDATE users
-       SET reset_token_hash = $1,
-           reset_token_expires = NOW() + INTERVAL '15 minutes'
-       WHERE id = $2`,
-      [tokenHash, user.id]
+    // 2. ถ้าไม่พบผู้ใช้ที่ตรงทั้งคู่ ให้ตรวจสอบแยกเงื่อนไขเพื่อแจ้งเตือนว่าผิดที่ช่องไหน
+    const matchByStudentId = await pool.query<{ id: number; name: string; email: string; student_id: string }>(
+      `SELECT id, name, email, student_id FROM users
+       WHERE TRIM(student_id) = TRIM($1)
+       LIMIT 1`,
+      [studentId]
     );
 
-    res.json({
-      success: true,
-      token: rawToken,
-      name: user.name,
-      message: `ยืนยันตัวตนสำเร็จ (${user.name}) กรุณาตั้งรหัสผ่านใหม่`,
+    if (matchByStudentId.rows[0]) {
+      res.status(400).json({
+        message: 'อีเมลไม่ตรงกับรหัสนักศึกษานี้ (กรุณาใช้อีเมลที่ลงทะเบียนไว้กับรหัสนี้)',
+      });
+      return;
+    }
+
+    const matchByEmail = await pool.query<{ id: number; name: string; email: string; student_id: string }>(
+      `SELECT id, name, email, student_id FROM users
+       WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+       LIMIT 1`,
+      [email]
+    );
+
+    if (matchByEmail.rows[0]) {
+      res.status(400).json({
+        message: 'รหัสนักศึกษาไม่ตรงกับอีเมลนี้ (กรุณาตรวจสอบรหัสนักศึกษาอีกครั้ง)',
+      });
+      return;
+    }
+
+    // 3. ถ้าไม่พบทั้งรหัสนักศึกษาและอีเมล
+    res.status(404).json({
+      message: 'ไม่พบข้อมูลรหัสนักศึกษาหรืออีเมลนี้ในระบบ กรุณาตรวจสอบข้อมูลหรือสมัครสมาชิกใหม่',
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการตรวจสอบข้อมูล' });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการตรวจสอบข้อมูล กรุณาลองใหม่' });
   }
 }
 
 // บันทึกรหัสผ่านใหม่ทันทีหลังจากยืนยันตัวตนสำเร็จ
 export async function instantResetPassword(req: Request, res: Response): Promise<void> {
-  const token = readString(req.body?.token);
-  const email = readString(req.body?.email).toLowerCase();
-  const studentId = readString(req.body?.studentId);
+  const token = readString(req.body?.token).trim();
+  const email = readString(req.body?.email).trim().toLowerCase();
+  const studentId = readString(req.body?.studentId).trim();
   const newPassword = readString(req.body?.newPassword);
 
   if (!newPassword || newPassword.length < 6) {
@@ -696,7 +729,8 @@ export async function instantResetPassword(req: Request, res: Response): Promise
     if (!userId && email && studentId) {
       const found = await pool.query<{ id: number }>(
         `SELECT id FROM users
-         WHERE LOWER(email) = LOWER($1) AND (student_id = $2 OR LOWER(email) = LOWER($2))
+         WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+           AND (TRIM(student_id) = TRIM($2) OR LOWER(TRIM(email)) = LOWER(TRIM($2)))
          LIMIT 1`,
         [email, studentId]
       );
@@ -707,7 +741,7 @@ export async function instantResetPassword(req: Request, res: Response): Promise
 
     if (!userId) {
       res.status(400).json({
-        message: 'การยืนยันตัวตนไม่ถูกต้องหรือหมดอายุแล้ว กรุณาลองใหม่อีกครั้ง',
+        message: 'การยืนยันตัวตนไม่ถูกต้องหรือหมดอายุแล้ว กรุณาย้อนกลับไปตรวจสอบข้อมูลใหม่อีกครั้ง',
       });
       return;
     }
