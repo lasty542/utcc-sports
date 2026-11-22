@@ -3,6 +3,7 @@
  */
 import api, { getApiBaseUrl } from './api';
 import type { User } from '../types';
+export type { User };
 
 // 1. กำหนด Response และ Payload Types ให้ชัดเจน
 export interface AuthResponse {
@@ -44,13 +45,6 @@ export interface ForgotPasswordResponse {
   message: string;
 }
 
-export interface MicrosoftStatusResponse {
-  configured: boolean;
-  tenantId: string;
-  redirectUri: string;
-  allowedDomains: string[];
-}
-
 // 2. จัดกลุ่ม Service Object รวมทุกฟังก์ชันของระบบ Authentication
 export const authService = {
   // เข้าสู่ระบบ (รองรับทั้งแบบส่งก้อน object หรือแยกตัวแปร)
@@ -82,7 +76,14 @@ export const authService = {
   },
 
   // เปลี่ยนรหัสผ่าน (ใช้ในหน้า Settings)
-  async changePassword(payload: ChangePasswordPayload): Promise<{ message: string }> {
+  async changePassword(
+    payloadOrCurrent: ChangePasswordPayload | string,
+    maybeNew?: string
+  ): Promise<{ message: string }> {
+    const payload: ChangePasswordPayload =
+      typeof payloadOrCurrent === 'string'
+        ? { currentPassword: payloadOrCurrent, newPassword: maybeNew || '' }
+        : payloadOrCurrent;
     const { data } = await api.post<{ message: string }>('/auth/change-password', payload);
     return data;
   },
@@ -144,19 +145,6 @@ export const authService = {
       newPassword,
     });
     return data;
-  },
-
-  // ตรวจสอบสถานะการเชื่อมต่อ Microsoft Entra ID OAuth
-  async getMicrosoftStatus(): Promise<MicrosoftStatusResponse> {
-    const { data } = await api.get<MicrosoftStatusResponse>('/auth/microsoft/status');
-    return data;
-  },
-
-  // URL สำหรับเริ่มล็อกอินด้วย Microsoft
-  getMicrosoftLoginUrl(): string {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const qs = origin ? `?redirect=${encodeURIComponent(origin)}` : '';
-    return `${getApiBaseUrl()}/auth/microsoft${qs}`;
   },
 
   // ตรวจสอบสถานะการเชื่อมต่อ Google OAuth

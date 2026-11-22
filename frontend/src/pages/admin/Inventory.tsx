@@ -1,26 +1,22 @@
 /**
  * หน้าจัดการคลังอุปกรณ์กีฬาสำหรับเจ้าหน้าที่ (แสดงตารางสต็อก, เพิ่ม, แก้ไข และลบอุปกรณ์)
  */
-// src/pages/Admin/Inventory.tsx
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { inventoryStyles as styles } from './Inventory.styles';
-import { Package, Plus, Pencil, Trash2, CheckCircle2, AlertCircle, Loader2, ListTree } from 'lucide-react';
+import { Package, Plus, AlertCircle, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import InventoryModal, { type InventoryItem } from './components/InventoryModal';
 import SerialItemsModal from './components/SerialItemsModal';
+import InventoryTable from './components/InventoryTable';
 import {
-  formatEquipCode,
   listEquipment,
   createEquipment,
   updateEquipment,
   deleteEquipment,
   type EquipmentItem,
 } from '../../services/equipService';
-
-const SCENIC_MEADOW_BG =
-  'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1920&auto=format&fit=crop';
 
 // ดึงข้อความ Error จาก Axios Response หรือใช้ข้อความสำรอง
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -139,16 +135,13 @@ export default function Inventory() {
   };
 
   return (
-    <div
-      className={styles.container}
-      style={{ backgroundImage: `url('${SCENIC_MEADOW_BG}')` }}
-    >
-      <div className="fixed inset-0 bg-gradient-to-b from-sky-900/15 via-emerald-950/10 to-emerald-950/35 pointer-events-none z-0" />
+    <div className={styles.container}>
+      <div className={styles.bgImageOverlay} />
 
       <div className={styles.contentWrapper}>
         {/* Floating Capsule Navbar */}
         <motion.div
-          className="flex items-center justify-between bg-white/75 backdrop-blur-2xl backdrop-saturate-150 px-4 py-2 rounded-full shadow-xl border border-white/80 mb-5 gap-3"
+          className={styles.topBarContainer}
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.3 }}
@@ -156,8 +149,8 @@ export default function Inventory() {
           <div className={styles.leftGroup}>
             <div className={styles.avatarCircle}>A</div>
             <div className="text-left hidden sm:block">
-              <p className="text-xs font-bold text-gray-800 leading-tight">เจ้าหน้าที่ผู้ดูแลระบบ</p>
-              <p className="text-[10px] text-emerald-700 font-bold">Admin System</p>
+              <p className="text-xs font-bold text-white leading-tight">เจ้าหน้าที่ผู้ดูแลระบบ</p>
+              <p className="text-[10px] text-emerald-400 font-bold">Admin System</p>
             </div>
           </div>
 
@@ -226,105 +219,15 @@ export default function Inventory() {
               </button>
             </div>
           ) : (
-            <div className={styles.tableWrapper}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th className={styles.th}>รหัส</th>
-                    <th className={styles.th}>ชื่ออุปกรณ์</th>
-                    <th className={styles.th}>หมวดหมู่</th>
-                    <th className={styles.th}>จำนวนทั้งหมด</th>
-                    <th className={styles.th}>คงเหลือ</th>
-                    <th className={styles.th}>สถานะ</th>
-                    <th className={`${styles.th} text-right`}>จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 font-medium">
-                  {items.map((item) => (
-                    <tr key={item.id} className="hover:bg-emerald-50/40 transition-colors">
-                      <td className={`${styles.td} font-mono font-bold text-emerald-900`}>
-                        {formatEquipCode(item.id)}
-                      </td>
-                      <td className={`${styles.td} font-bold text-gray-900`}>
-                        <div className="flex items-center gap-2.5">
-                          {item.image && (
-                            <img
-                              src={item.image}
-                              alt={item.name}
-                              className="w-9 h-9 rounded-xl object-cover border border-gray-200 shrink-0"
-                            />
-                          )}
-                          <div>
-                            <p>{item.name}</p>
-                            {item.description && (
-                              <p className="text-[10px] text-gray-400 font-normal truncate max-w-[220px]">
-                                {item.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className={styles.td}>
-                        <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md text-[11px]">{item.category}</span>
-                      </td>
-                      <td className={styles.td}>{item.totalQty} ชิ้น</td>
-                      <td className={styles.td}>
-                        <span className={`font-bold ${item.availableQty > 0 ? 'text-emerald-700' : 'text-red-500'}`}>
-                          {item.availableQty} ชิ้น
-                        </span>
-                      </td>
-                      <td className={styles.td}>
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            item.status === 'พร้อมใช้งาน'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : item.status === 'ใช้งานอยู่'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {item.status === 'พร้อมใช้งาน' ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
-                          {item.status}
-                        </span>
-                      </td>
-                      <td className={`${styles.td} text-right`}>
-                        <button
-                          onClick={() => setSerialModalEquip(item)}
-                          className={`${styles.actionIconBtn} text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 mr-1`}
-                          title="จัดการรหัสประจำชิ้น (Asset Serials)"
-                        >
-                          <ListTree size={15} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEditingItem(item);
-                            setIsModalOpen(true);
-                          }}
-                          className={`${styles.actionIconBtn} text-blue-600 hover:text-blue-800`}
-                          title="แก้ไขข้อมูล"
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteItem(item.id)}
-                          className={`${styles.actionIconBtn} text-red-500 hover:text-red-700`}
-                          title="ลบอุปกรณ์"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {items.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="text-center py-8 text-gray-400 text-xs">
-                        ยังไม่มีอุปกรณ์ในระบบ
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <InventoryTable
+              items={items}
+              onEditItem={(item) => {
+                setEditingItem(item);
+                setIsModalOpen(true);
+              }}
+              onDeleteItem={handleDeleteItem}
+              onManageSerials={(item) => setSerialModalEquip(item)}
+            />
           )}
         </motion.div>
 

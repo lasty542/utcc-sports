@@ -9,7 +9,6 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 
 const Login = lazy(() => import('./pages/auth/Login'));
 const ResetPassword = lazy(() => import('./pages/auth/ResetPassword'));
-const MicrosoftCallback = lazy(() => import('./pages/auth/MicrosoftCallback'));
 const GoogleCallback = lazy(() => import('./pages/auth/GoogleCallback'));
 const StudentDashboard = lazy(() => import('./pages/student/Dashboard'));
 const StudentHistory = lazy(() => import('./pages/student/History'));
@@ -36,7 +35,6 @@ function App() {
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/auth/microsoft/callback" element={<MicrosoftCallback />} />
             <Route path="/auth/google/callback" element={<GoogleCallback />} />
 
             {/* เส้นทางสำหรับนักศึกษา */}

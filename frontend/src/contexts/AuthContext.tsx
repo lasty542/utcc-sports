@@ -10,6 +10,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   login: (userData: User, token?: string) => void;
+  setUser: (userData: User) => void;
   logout: () => void;
   loading: boolean;
 }
@@ -46,6 +47,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (newToken) setToken(newToken);
     sessionStorage.setItem('auth_user', JSON.stringify({ user: userData, token: t }));
     localStorage.removeItem('auth_user');
+  }, [token]);
+
+  const setUserData = useCallback((userData: User) => {
+    setUser(userData);
+    const raw = sessionStorage.getItem('auth_user') || localStorage.getItem('auth_user');
+    let currentToken = token;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.token) currentToken = parsed.token;
+      } catch { /* ignore */ }
+    }
+    sessionStorage.setItem('auth_user', JSON.stringify({ user: userData, token: currentToken }));
   }, [token]);
 
   // ล้างข้อมูลผู้ใช้และ Token ออกจากระบบเมื่อออกจากระบบ
@@ -85,7 +99,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [logout]);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, token, login, setUser: setUserData, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

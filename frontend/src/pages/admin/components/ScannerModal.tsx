@@ -1,23 +1,16 @@
 /**
  * หน้าต่างสแกน QR Code ของเจ้าหน้าที่ (รองรับเปิดกล้องสด, อัปโหลดรูป QR, กดเลือกคิว และกรอกรหัส)
  */
-import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type ChangeEvent, type FormEvent } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Html5Qrcode } from 'html5-qrcode';
-import {
-  QrCode,
-  X,
-  CheckCircle2,
-  Camera,
-  Keyboard,
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-  Upload,
-} from 'lucide-react';
+import { QrCode, X, Camera, Keyboard, AlertCircle, RefreshCw } from 'lucide-react';
 import { listBorrows, verifyScan, type BorrowItem } from '../../../services/borrowService';
 import { notifyBorrowUpdated } from '../../../utils/realtime';
+import ScannerCameraView from './ScannerCameraView';
+import ScannerQueueView from './ScannerQueueView';
+import ScannerSuccessView from './ScannerSuccessView';
 
 interface ScannerModalProps {
   isOpen: boolean;
@@ -30,15 +23,11 @@ type ScanTab = 'camera' | 'manual';
 const QR_READER_ID = 'utcc-qr-reader';
 const QR_FILE_READER_ID = 'utcc-qr-file-reader';
 
-// ดึงข้อความ Error จาก Axios Response หรือใช้ข้อความเริ่มต้น
-function getErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError<{ message?: string; error?: string }>(err)) {
-    return err.response?.data?.message || err.response?.data?.error || fallback;
-  }
-  return err instanceof Error ? err.message : fallback;
-}
+const getErrorMessage = (err: unknown, fb: string) =>
+  axios.isAxiosError<{ message?: string; error?: string }>(err)
+    ? err.response?.data?.message || err.response?.data?.error || fb
+    : err instanceof Error ? err.message : fb;
 
-// คอมโพเนนต์ Modal สแกนรับ-คืนอุปกรณ์สำหรับเจ้าหน้าที่
 export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModalProps) {
   const [activeTab, setActiveTab] = useState<ScanTab>('camera');
   const [scanCode, setScanCode] = useState('');
@@ -47,28 +36,22 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
   const [scanError, setScanError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeQueue, setActiveQueue] = useState<BorrowItem[]>([]);
+  const [retryCount, setRetryCount] = useState(0);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isProcessingRef = useRef(false);
 
-  // หยุดการทำงานของกล้องและล้าง Instance เครื่องสแกน QR
   const stopCamera = useCallback(async () => {
     const scanner = scannerRef.current;
     scannerRef.current = null;
     if (!scanner) return;
-
     try {
-      if (scanner.isScanning) {
-        await scanner.stop();
-      }
+      if (scanner.isScanning) await scanner.stop();
       scanner.clear();
-    } catch {
-      // ignore cleanup errors when camera wasn't fully started
-    }
+    } catch { /* ignore */ }
   }, []);
 
-  // ส่งรหัส QR Token หรือรหัสนักศึกษาไปตรวจสอบและบันทึกการรับ/คืนอุปกรณ์
   const submitToken = useCallback(
     async (rawToken: string) => {
       const token = rawToken.trim();
@@ -81,9 +64,7 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
       try {
         const result = await verifyScan(token);
         await stopCamera();
-        setSuccessMessage(
-          `${result.message} (${result.borrow.userName} - ${result.borrow.studentId})`
-        );
+        setSuccessMessage(`${result.message} (${result.borrow.userName} - ${result.borrow.studentId})`);
         setScanCode('');
         onSuccess();
         notifyBorrowUpdated();
@@ -96,27 +77,17 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
     [onSuccess, stopCamera]
   );
 
-  // โหลดรายการคิวที่รอรับของ / กำลังยืม สำหรับคลิกยืนยันได้ทันทีในแท็บกรอก/เลือก
   useEffect(() => {
     if (!isOpen || successMessage) return;
-
     let active = true;
     listBorrows()
       .then((data) => {
-        if (active) {
-          setActiveQueue(data.filter((b) => b.statusType !== 'returned'));
-        }
+        if (active) setActiveQueue(data.filter((b) => b.statusType !== 'returned'));
       })
-      .catch(() => {
-        // ignore queue fetch failure
-      });
-
-    return () => {
-      active = false;
-    };
+      .catch(() => {});
+    return () => { active = false; };
   }, [isOpen, successMessage]);
 
-  // เปิด-ปิดกล้องจริงเมื่ออยู่ในแท็บ camera
   useEffect(() => {
     if (!isOpen || activeTab !== 'camera' || successMessage) {
       void stopCamera();
@@ -127,7 +98,7 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
     isProcessingRef.current = false;
 
     const startCamera = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, 200));
       if (cancelled) return;
 
       const element = document.getElementById(QR_READER_ID);
@@ -135,6 +106,13 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
 
       try {
         setCameraError(null);
+        let cameras: Array<{ id: string; label: string }> = [];
+        try {
+          cameras = await Html5Qrcode.getCameras();
+        } catch { /* ignore permission prompt */ }
+
+        if (cancelled) return;
+
         const scanner = new Html5Qrcode(QR_READER_ID);
         scannerRef.current = scanner;
 
@@ -145,28 +123,40 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
           }
         };
 
-        try {
-          await scanner.start({ facingMode: 'environment' }, config, onDecoded, () => {});
-        } catch {
-          const cameras = await Html5Qrcode.getCameras();
-          if (cancelled) {
+        if (cameras && cameras.length > 0) {
+          const backCam = cameras.find((c) => /back|rear|environment/i.test(c.label));
+          const camId = backCam ? backCam.id : cameras[0].id;
+          await scanner.start(camId, config, onDecoded, () => {});
+        } else {
+          try {
+            await scanner.start({ facingMode: 'environment' }, config, onDecoded, () => {});
+          } catch {
             await stopCamera();
-            return;
+            if (cancelled) return;
+            const fallbackScanner = new Html5Qrcode(QR_READER_ID);
+            scannerRef.current = fallbackScanner;
+            await fallbackScanner.start({ facingMode: 'user' }, config, onDecoded, () => {});
           }
-          if (cameras.length === 0) {
-            throw new Error('NO_CAMERA');
-          }
-          await scanner.start(cameras[0].id, config, onDecoded, () => {});
         }
 
         if (cancelled) {
           await stopCamera();
         }
-      } catch {
+      } catch (err: unknown) {
         if (!cancelled) {
-          setCameraError(
-            'ไม่สามารถเปิดกล้องได้ (มือถือ/เครื่องอื่นต้องใช้ HTTPS) สามารถอัปโหลดรูปภาพ QR หรือกดยืนยันจากรายชื่อได้ทันที'
-          );
+          const errName = err instanceof Error ? err.name : '';
+          const errMsg = err instanceof Error ? err.message : String(err);
+          let userMsg = 'ไม่สามารถเปิดกล้องได้';
+          if (errName === 'NotAllowedError' || errMsg.includes('Permission')) {
+            userMsg = 'เบราว์เซอร์ไม่ได้รับอนุญาตให้ใช้กล้อง กรุณากด "อนุญาต" (Allow) กล้องที่แถบ URL';
+          } else if (errName === 'NotFoundError' || errMsg.includes('NO_CAMERA')) {
+            userMsg = 'ไม่พบอุปกรณ์กล้อง สามารถอัปโหลดรูปภาพ QR หรือคลิกเลือกจากรายชื่อคิวได้ทันที';
+          } else if (errName === 'NotReadableError') {
+            userMsg = 'กล้องกำลังถูกใช้งานโดยโปรแกรมอื่นอยู่ กรุณาปิดโปรแกรมอื่นแล้วลองใหม่อีกครั้ง';
+          } else {
+            userMsg = `ไม่สามารถเปิดกล้องได้ (${errMsg || 'กรุณาตรวจสอบการอนุญาต'})`;
+          }
+          setCameraError(userMsg);
         }
       }
     };
@@ -177,9 +167,8 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
       cancelled = true;
       void stopCamera();
     };
-  }, [isOpen, activeTab, successMessage, stopCamera, submitToken]);
+  }, [isOpen, activeTab, successMessage, retryCount, stopCamera, submitToken]);
 
-  // อ่าน QR Code จากไฟล์รูปภาพที่อัปโหลดแล้วส่งตรวจสอบ
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -187,7 +176,6 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
 
     setScanError(null);
     isProcessingRef.current = false;
-
     try {
       const fileScanner = new Html5Qrcode(QR_FILE_READER_ID);
       const decoded = await fileScanner.scanFile(file, false);
@@ -198,35 +186,21 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
     }
   };
 
-  // ส่งรหัสหรือ Token ที่กรอกด้วยมือไปตรวจสอบรับ-คืน
-  const handleManualSubmit = (e: React.FormEvent) => {
+  const handleManualSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!scanCode.trim() || isSubmitting) return;
-    isProcessingRef.current = false;
-    void submitToken(scanCode);
+    if (scanCode.trim() && !isSubmitting) {
+      isProcessingRef.current = false;
+      void submitToken(scanCode);
+    }
   };
 
-  // กดยืนยันรับของหรือรับคืนทันทีจากรายการคิวที่แสดงอยู่
   const handleQuickAction = (borrowId: number) => {
-    if (isSubmitting) return;
-    isProcessingRef.current = false;
-    void submitToken(String(borrowId));
+    if (!isSubmitting) {
+      isProcessingRef.current = false;
+      void submitToken(String(borrowId));
+    }
   };
 
-  // ล้างข้อความผิดพลาดเพื่ออนุญาตให้สแกนใหม่อีกครั้ง
-  const handleRetryScan = () => {
-    setScanError(null);
-    isProcessingRef.current = false;
-  };
-
-  // สลับแท็บระหว่างโหมดกล้องกับโหมดเลือกคิว/กรอกรหัส
-  const handleTabChange = (tab: ScanTab) => {
-    setScanError(null);
-    isProcessingRef.current = false;
-    setActiveTab(tab);
-  };
-
-  // ปิดกล้อง ล้างสถานะทั้งหมด แล้วปิดหน้าต่าง Modal
   const handleClose = () => {
     void stopCamera();
     setSuccessMessage(null);
@@ -248,36 +222,13 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
             exit={{ scale: 0.92, opacity: 0, y: 12 }}
           >
             <div id={QR_FILE_READER_ID} className="hidden" />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => void handleFileUpload(e)}
-              className="hidden"
-            />
-
-            <button
-              onClick={handleClose}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer"
-              aria-label="ปิดหน้าต่าง"
-            >
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => void handleFileUpload(e)} className="hidden" />
+            <button onClick={handleClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer" aria-label="ปิดหน้าต่าง">
               <X size={18} />
             </button>
 
             {successMessage ? (
-              <div className="text-center py-4">
-                <div className="bg-emerald-100 text-emerald-600 p-3 rounded-full w-14 h-14 flex items-center justify-center mx-auto mb-3">
-                  <CheckCircle2 size={28} />
-                </div>
-                <h2 className="text-lg font-black text-emerald-950 mb-1">ทำรายการสำเร็จ!</h2>
-                <p className="text-xs text-gray-600 mb-5 leading-relaxed">{successMessage}</p>
-                <button
-                  onClick={handleClose}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs cursor-pointer shadow-md"
-                >
-                  เสร็จสิ้น / ปิดหน้าต่าง
-                </button>
-              </div>
+              <ScannerSuccessView message={successMessage} onClose={handleClose} />
             ) : (
               <div>
                 <div className="text-center mb-4">
@@ -290,30 +241,20 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
                   </p>
                 </div>
 
-                {/* แท็บสลับระหว่างกล้องและเลือกรายการ/กรอกรหัส */}
                 <div className="grid grid-cols-2 gap-1.5 bg-gray-100 p-1 rounded-xl mb-4">
-                  <button
-                    type="button"
-                    onClick={() => handleTabChange('camera')}
-                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'camera'
-                        ? 'bg-white text-emerald-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-800'
-                    }`}
-                  >
-                    <Camera size={14} /> สแกน / รูปภาพ QR
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTabChange('manual')}
-                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'manual'
-                        ? 'bg-white text-emerald-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-800'
-                    }`}
-                  >
-                    <Keyboard size={14} /> เลือกคิว / กรอกรหัส
-                  </button>
+                  {(['camera', 'manual'] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => { setScanError(null); setActiveTab(tab); }}
+                      className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        activeTab === tab ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      {tab === 'camera' ? <Camera size={14} /> : <Keyboard size={14} />}
+                      {tab === 'camera' ? 'สแกน / รูปภาพ QR' : 'เลือกคิว / กรอกรหัส'}
+                    </button>
+                  ))}
                 </div>
 
                 {scanError && (
@@ -325,7 +266,7 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
                     {activeTab === 'camera' && (
                       <button
                         type="button"
-                        onClick={handleRetryScan}
+                        onClick={() => { setScanError(null); isProcessingRef.current = false; }}
                         className="shrink-0 text-red-700 hover:text-red-900 underline inline-flex items-center gap-1 cursor-pointer"
                       >
                         <RefreshCw size={12} /> สแกนใหม่
@@ -335,139 +276,17 @@ export default function ScannerModal({ isOpen, onClose, onSuccess }: ScannerModa
                 )}
 
                 {activeTab === 'camera' ? (
-                  <div>
-                    {cameraError ? (
-                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center mb-3">
-                        <Camera size={32} className="text-amber-600 mx-auto mb-2" />
-                        <p className="text-xs font-bold text-amber-900 mb-3 leading-relaxed">
-                          {cameraError}
-                        </p>
-                        <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="bg-white border border-amber-300 text-amber-900 font-bold px-3.5 py-2 rounded-xl text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
-                          >
-                            <Upload size={14} /> อัปโหลดรูป QR
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleTabChange('manual')}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs cursor-pointer"
-                          >
-                            คลิกยืนยันจากรายชื่อ
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="relative rounded-2xl overflow-hidden bg-gray-900 mb-3 min-h-[240px]">
-                        <div id={QR_READER_ID} className="w-full" />
-                        {isSubmitting && (
-                          <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white">
-                            <Loader2 size={28} className="animate-spin mb-2" />
-                            <p className="text-xs font-bold">กำลังตรวจสอบรหัส...</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isSubmitting}
-                        className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 font-bold px-3.5 py-2 rounded-xl text-xs cursor-pointer inline-flex items-center gap-1.5"
-                      >
-                        <Upload size={14} /> อัปโหลดภาพ QR
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleClose}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-4 py-2 rounded-xl text-xs cursor-pointer"
-                      >
-                        ปิดหน้าต่าง
-                      </button>
-                    </div>
-                  </div>
+                  <ScannerCameraView
+                    cameraError={cameraError} isSubmitting={isSubmitting} qrReaderId={QR_READER_ID} fileInputRef={fileInputRef}
+                    onSwitchToManual={() => { setScanError(null); setActiveTab('manual'); }}
+                    onRetryCamera={() => { setCameraError(null); setRetryCount((c) => c + 1); }}
+                    onClose={handleClose}
+                  />
                 ) : (
-                  <div className="space-y-4">
-                    {/* รายการคิวที่คลิกอนุมัติ/รับคืนได้ทันที */}
-                    {activeQueue.length > 0 && (
-                      <div>
-                        <p className="text-xs font-bold text-emerald-950 mb-2">
-                          รายการที่รอรับของ / กำลังยืม (คลิกเพื่อยืนยันทันที)
-                        </p>
-                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                          {activeQueue.map((item) => {
-                            const isPending = item.statusType === 'pending';
-                            return (
-                              <button
-                                key={item.id}
-                                type="button"
-                                disabled={isSubmitting}
-                                onClick={() => handleQuickAction(item.id)}
-                                className="w-full text-left bg-white/85 hover:bg-emerald-50 border border-white rounded-2xl p-3 shadow-sm transition-all flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50"
-                              >
-                                <div className="min-w-0">
-                                  <p className="text-xs font-black text-slate-900 truncate">
-                                    REQ-{String(item.id).padStart(4, '0')} • {item.equipment} ({item.qty})
-                                  </p>
-                                  {item.itemCodes && item.itemCodes.length > 0 && (
-                                    <p className="font-mono text-[10px] font-bold text-emerald-800 truncate">
-                                      รหัสชิ้น: {item.itemCodes.join(', ')}
-                                    </p>
-                                  )}
-                                  <p className="text-[11px] text-slate-500 truncate">
-                                    {item.userName} ({item.studentId})
-                                  </p>
-                                </div>
-                                <span
-                                  className={`shrink-0 px-2.5 py-1 rounded-xl text-[10px] font-black text-white ${
-                                    isPending ? 'bg-indigo-600' : 'bg-emerald-600'
-                                  }`}
-                                >
-                                  {isPending ? 'ยืนยันรับของ' : 'รับคืน'}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <form onSubmit={handleManualSubmit} className="pt-2 border-t border-gray-200/70">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">
-                        หรือกรอกรหัสนักศึกษา / รหัสคำขอ (Token)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="เช่น 2410511101055, REQ-0001 หรือ UTCC-PASS:..."
-                        value={scanCode}
-                        onChange={(e) => setScanCode(e.target.value)}
-                        disabled={isSubmitting}
-                        className="w-full bg-white/85 border border-gray-200 rounded-xl px-3 py-2.5 text-xs focus:ring-2 focus:ring-emerald-500 mb-3 outline-none"
-                        required
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={handleClose}
-                          disabled={isSubmitting}
-                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-4 py-2 rounded-xl text-xs cursor-pointer"
-                        >
-                          ยกเลิก
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl text-xs cursor-pointer shadow-md inline-flex items-center gap-1.5"
-                        >
-                          {isSubmitting && <Loader2 size={14} className="animate-spin" />}
-                          ยืนยันรับ / คืนอุปกรณ์
-                        </button>
-                      </div>
-                    </form>
-                  </div>
+                  <ScannerQueueView
+                    activeQueue={activeQueue} isSubmitting={isSubmitting} scanCode={scanCode} setScanCode={setScanCode}
+                    onQuickAction={handleQuickAction} onManualSubmit={handleManualSubmit} onClose={handleClose}
+                  />
                 )}
               </div>
             )}

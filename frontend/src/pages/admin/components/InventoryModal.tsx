@@ -58,7 +58,7 @@ function InventoryForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+    <form onSubmit={handleSubmit} className="space-y-3 text-xs text-slate-800">
       <div>
         <label className="font-bold text-gray-700 mb-1 flex items-center gap-1">
           <Layers size={13} className="text-emerald-600" /> ชื่ออุปกรณ์กีฬา
@@ -68,7 +68,7 @@ function InventoryForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="เช่น ลูกฟุตบอล Molten No.5"
-          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+          className="w-full bg-white text-slate-900 font-bold border border-gray-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs placeholder:text-gray-400"
           required
         />
       </div>
@@ -78,7 +78,7 @@ function InventoryForm({
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+          className="w-full bg-white text-slate-900 font-bold border border-gray-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
         >
           <option value="ฟุตบอล">ฟุตบอล</option>
           <option value="บาสเกตบอล">บาสเกตบอล</option>
@@ -99,7 +99,7 @@ function InventoryForm({
             min="1"
             value={totalQty}
             onChange={(e) => setTotalQty(Number(e.target.value))}
-            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+            className="w-full bg-white text-slate-900 font-bold border border-gray-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
             required
           />
         </div>
@@ -111,7 +111,7 @@ function InventoryForm({
             max={totalQty}
             value={availableQty}
             onChange={(e) => setAvailableQty(Number(e.target.value))}
-            className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+            className="w-full bg-white text-slate-900 font-bold border border-gray-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
             required
           />
         </div>
@@ -124,7 +124,7 @@ function InventoryForm({
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as InventoryItem['status'])}
-          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+          className="w-full bg-white text-slate-900 font-bold border border-gray-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
         >
           <option value="พร้อมใช้งาน">พร้อมใช้งาน</option>
           <option value="ใช้งานอยู่">ใช้งานอยู่</option>
@@ -141,7 +141,7 @@ function InventoryForm({
           value={image}
           onChange={(e) => setImage(e.target.value)}
           placeholder="https://images.unsplash.com/..."
-          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+          className="w-full bg-white text-slate-900 font-bold border border-gray-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs placeholder:text-gray-400"
         />
       </div>
 
@@ -154,7 +154,7 @@ function InventoryForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="รายละเอียดหรือหมายเหตุอุปกรณ์..."
-          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+          className="w-full bg-white text-slate-900 font-bold border border-gray-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-emerald-500 outline-none resize-none shadow-xs placeholder:text-gray-400"
         />
       </div>
 
@@ -184,7 +184,7 @@ export default function InventoryModal({ isOpen, onClose, editingItem, onSave }:
       {isOpen && (
         <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <motion.div
-            className="bg-white/72 backdrop-blur-3xl backdrop-saturate-150 rounded-[2.2rem] p-5 sm:p-6 max-w-sm w-full shadow-[0_28px_70px_rgba(15,23,42,0.28)] border border-white/80 ring-1 ring-white/50 relative"
+            className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full shadow-2xl border border-gray-200 relative text-slate-800"
             initial={{ scale: 0.92, opacity: 0, y: 12 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 12 }}

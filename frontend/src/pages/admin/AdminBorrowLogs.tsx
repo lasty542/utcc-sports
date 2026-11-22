@@ -1,27 +1,24 @@
 /**
- * หน้าตรวจสอบและจัดการรายการยืม-คืนทั้งหมดสำหรับเจ้าหน้าที่ (กรองสถานะ, ค้นหา, อนุมัติรับ/คืน, ลบ)
+ * หน้าตรวจสอบประวัติการยืม-คืนอุปกรณ์ทั้งหมดสำหรับเจ้าหน้าที่ (Admin Borrow Logs)
  */
-// src/pages/Admin/AdminBorrowLogs.tsx
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { adminDashboardStyles as styles } from './AdminDashboard.styles';
-import { ArrowLeft, CheckCircle2, Clock, AlertCircle, Trash2, Loader2, Search, QrCode } from 'lucide-react';
+import { ArrowLeft, Search, QrCode, Loader2, AlertCircle, Layers, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
 import {
   listBorrows,
-  verifyScan,
+  confirmPickup,
+  returnBorrow,
   deleteBorrow,
   type BorrowItem,
 } from '../../services/borrowService';
-import ScannerModal from './components/ScannerModal';
+import { adminDashboardStyles as styles } from './AdminDashboard.styles';
 import { notifyBorrowUpdated, subscribeBorrowUpdated } from '../../utils/realtime';
+import ScannerModal from './components/ScannerModal';
+import BorrowLogsTable from './components/BorrowLogsTable';
 
-const SCENIC_MEADOW_BG =
-  'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1920&auto=format&fit=crop';
+type StatusFilter = 'all' | 'pending' | 'borrowing' | 'overdue' | 'returned';
 
-type LogFilter = 'all' | 'pending' | 'borrowing' | 'overdue' | 'returned';
-
-const FILTER_TABS: Array<{ key: LogFilter; label: string }> = [
+const FILTER_TABS: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: 'ทั้งหมด' },
   { key: 'pending', label: 'รออนุมัติรับของ' },
   { key: 'borrowing', label: 'กำลังยืม' },
@@ -29,118 +26,91 @@ const FILTER_TABS: Array<{ key: LogFilter; label: string }> = [
   { key: 'returned', label: 'คืนแล้ว' },
 ];
 
-// ดึงข้อความ Error จาก Axios Response หรือใช้ข้อความเริ่มต้น
-function getErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError<{ message?: string }>(err)) {
-    return err.response?.data?.message || fallback;
+function extractErrMsg(err: unknown, fallback: string): string {
+  if (typeof err === 'object' && err !== null && 'response' in err) {
+    return (err as { response?: { data?: { message?: string } } }).response?.data?.message || fallback;
   }
   return fallback;
 }
 
-// คอมโพเนนต์ตารางตรวจสอบรายการยืม-คืนทั้งหมดของเจ้าหน้าที่
 export default function AdminBorrowLogs() {
   const navigate = useNavigate();
 
   const [borrowList, setBorrowList] = useState<BorrowItem[]>([]);
-  const [activeFilter, setActiveFilter] = useState<LogFilter>('all');
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<StatusFilter>('all');
+  const [search, setSearch] = useState('');
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
-  // โหลดรายการยืม-คืนทั้งหมดจากเซิร์ฟเวอร์
   const fetchBorrows = useCallback(async () => {
     try {
       setError(null);
       const data = await listBorrows();
       setBorrowList(data);
-    } catch (err) {
-      setError(getErrorMessage(err, 'ไม่สามารถโหลดรายการยืม-คืนได้'));
+    } catch {
+      setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์เพื่อโหลดประวัติการยืมได้');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let active = true;
-    listBorrows()
-      .then((data) => {
-        if (active) {
-          setError(null);
-          setBorrowList(data);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          setError(getErrorMessage(err, 'ไม่สามารถโหลดรายการยืม-คืนได้'));
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    // เชื่อมต่อการอัปเดตแบบ Real-time ข้ามหน้าจอ
-    const unsubscribe = subscribeBorrowUpdated(() => {
-      void fetchBorrows();
-    });
-
-    return () => {
-      active = false;
-      unsubscribe();
-    };
+    void fetchBorrows();
+    const unsubscribe = subscribeBorrowUpdated(() => void fetchBorrows());
+    return () => unsubscribe();
   }, [fetchBorrows]);
 
-  // อนุมัติรับของ / รับคืนอุปกรณ์ผ่าน POST /api/borrow/verify-scan
-  const handleProcessItem = async (id: number) => {
+  const handleConfirmPickup = async (id: number) => {
     setProcessingId(id);
     try {
-      const { borrow: updated } = await verifyScan(String(id));
-      setBorrowList((prev) => prev.map((item) => (item.id === id ? updated : item)));
+      const res = await confirmPickup(id);
+      setBorrowList((prev) => prev.map((item) => (item.id === id ? res.borrow : item)));
       notifyBorrowUpdated();
-    } catch (err) {
-      alert(getErrorMessage(err, 'ไม่สามารถอัปเดตรายการได้'));
+    } catch (err: unknown) {
+      alert(extractErrMsg(err, 'ไม่สามารถยืนยันรับอุปกรณ์ได้'));
     } finally {
       setProcessingId(null);
     }
   };
 
-  // ลบรายการผ่าน DELETE /api/borrow/:id
-  const handleDeleteItem = async (id: number) => {
-    if (!window.confirm('คุณต้องการลบรายการนี้ใช่หรือไม่?')) return;
+  const handleReturn = async (id: number) => {
+    setProcessingId(id);
+    try {
+      const res = await returnBorrow(id);
+      setBorrowList((prev) => prev.map((item) => (item.id === id ? res.borrow : item)));
+      notifyBorrowUpdated();
+    } catch (err: unknown) {
+      alert(extractErrMsg(err, 'ไม่สามารถบันทึกการคืนอุปกรณ์ได้'));
+    } finally {
+      setProcessingId(null);
+    }
+  };
 
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบรายการยืมนี้ออกจากระบบ?')) return;
     setProcessingId(id);
     try {
       await deleteBorrow(id);
       setBorrowList((prev) => prev.filter((item) => item.id !== id));
       notifyBorrowUpdated();
-    } catch (err) {
-      alert(getErrorMessage(err, 'ไม่สามารถลบรายการได้'));
+    } catch (err: unknown) {
+      alert(extractErrMsg(err, 'ไม่สามารถลบรายการได้'));
     } finally {
       setProcessingId(null);
     }
   };
 
   const counts = useMemo(() => {
-    const map: Record<LogFilter, number> = {
-      all: borrowList.length,
-      pending: 0,
-      borrowing: 0,
-      overdue: 0,
-      returned: 0,
-    };
-    borrowList.forEach((item) => {
-      if (item.statusType === 'pending' || (item.statusType as string) === 'approved') {
-        map.pending += 1;
-      } else if (item.statusType === 'borrowing' || (item.statusType as string) === 'borrowed') {
-        map.borrowing += 1;
-      } else if (item.statusType === 'overdue') {
-        map.overdue += 1;
-      } else if (item.statusType === 'returned') {
-        map.returned += 1;
-      }
-    });
-    return map;
+    const c = { all: borrowList.length, pending: 0, borrowing: 0, overdue: 0, returned: 0 };
+    for (const item of borrowList) {
+      if (item.statusType === 'pending' || (item.statusType as string) === 'approved') c.pending++;
+      else if (item.statusType === 'borrowing' || (item.statusType as string) === 'borrowed') c.borrowing++;
+      else if (item.statusType === 'overdue') c.overdue++;
+      else if (item.statusType === 'returned') c.returned++;
+    }
+    return c;
   }, [borrowList]);
 
   const filteredList = useMemo(() => {
@@ -163,43 +133,85 @@ export default function AdminBorrowLogs() {
   }, [borrowList, activeFilter, search]);
 
   return (
-    <div
-      className={styles.container}
-      style={{ backgroundImage: `url('${SCENIC_MEADOW_BG}')` }}
-    >
-      <div className="fixed inset-0 bg-gradient-to-b from-sky-900/15 via-emerald-950/10 to-emerald-950/35 pointer-events-none z-0" />
+    <div className={styles.container}>
+      <div className={styles.bgImageOverlay} />
 
       <div className={styles.contentWrapper}>
-        {/* Top Header & Back Button */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 bg-white/75 backdrop-blur-2xl backdrop-saturate-150 px-5 py-3.5 rounded-full shadow-xl border border-white/80">
-          <div className="flex items-center gap-3">
+        {/* Top Header */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 mb-4 bg-[#0b2b1d]/85 backdrop-blur-2xl px-4 sm:px-5 py-2.5 rounded-full shadow-xl border border-emerald-500/30 text-white">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => navigate('/admin')}
-              className="bg-emerald-100 hover:bg-emerald-200 text-emerald-950 px-3.5 py-2 rounded-full transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+              className="bg-emerald-800/80 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-full transition-all cursor-pointer flex items-center gap-1 text-xs font-bold border border-emerald-600/50"
             >
-              <ArrowLeft size={16} /> กลับหน้าแดชบอร์ด
+              <ArrowLeft size={14} /> กลับแดชบอร์ด
             </button>
-            <h1 className="text-base sm:text-lg font-black text-emerald-950">ตรวจสอบรายการยืม-คืนอุปกรณ์</h1>
+            <h1 className="text-xs sm:text-sm font-black tracking-tight text-white flex items-center gap-1.5">
+              <Layers size={15} className="text-emerald-400" /> ตรวจสอบรายการยืม-คืน
+            </h1>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setIsScannerOpen(true)}
-              className="bg-slate-900 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-full transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-sm"
+              className="bg-slate-900 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-full transition-all cursor-pointer flex items-center gap-1 text-xs font-bold shadow-sm border border-white/20"
               title="เปิดกล้องสแกน QR Code"
             >
-              <QrCode size={14} /> สแกน QR Code
+              <QrCode size={13} className="text-emerald-400" /> สแกน QR
             </button>
-            <span className="text-xs font-bold text-slate-700 bg-white/80 px-3.5 py-1.5 rounded-full border border-white">
-              ทั้งหมด {borrowList.length} รายการ
+            <span className="text-[11px] font-black text-emerald-200 bg-emerald-950/90 px-3 py-1 rounded-full border border-emerald-500/40">
+              {borrowList.length} รายการ
             </span>
           </div>
         </div>
 
-        {/* ตารางแสดงรายการยืมของนักศึกษา */}
-        <div className="bg-white/80 backdrop-blur-2xl backdrop-saturate-150 rounded-[2.2rem] p-5 sm:p-7 shadow-[0_20px_50px_rgba(15,23,42,0.16)] border border-white/85">
+        {/* Live Queue Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+          <div className="bg-[#0b281c]/80 backdrop-blur-xl border border-amber-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md">
+            <div>
+              <p className="text-[10px] sm:text-[11px] font-bold text-amber-300">คิวรอรับอุปกรณ์</p>
+              <p className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">{counts.pending}</p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+              <Clock size={16} />
+            </div>
+          </div>
+
+          <div className="bg-[#0b281c]/80 backdrop-blur-xl border border-emerald-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md">
+            <div>
+              <p className="text-[10px] sm:text-[11px] font-bold text-emerald-300">กำลังยืมใช้งาน</p>
+              <p className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">{counts.borrowing}</p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+              <Layers size={16} />
+            </div>
+          </div>
+
+          <div className="bg-[#0b281c]/80 backdrop-blur-xl border border-red-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md">
+            <div>
+              <p className="text-[10px] sm:text-[11px] font-bold text-red-300">เกินกำหนดส่ง</p>
+              <p className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">{counts.overdue}</p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center font-bold">
+              <AlertTriangle size={16} />
+            </div>
+          </div>
+
+          <div className="bg-[#0b281c]/80 backdrop-blur-xl border border-emerald-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-md">
+            <div>
+              <p className="text-[10px] sm:text-[11px] font-bold text-emerald-300">คืนเรียบร้อยแล้ว</p>
+              <p className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">{counts.returned}</p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+              <CheckCircle2 size={16} />
+            </div>
+          </div>
+        </div>
+
+        {/* Card Container */}
+        <div className="bg-white/95 backdrop-blur-2xl rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xl border border-white/80">
           {/* Filter Tabs + Search */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 mb-4">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
               {FILTER_TABS.map((tab) => {
                 const isActive = activeFilter === tab.key;
@@ -211,7 +223,7 @@ export default function AdminBorrowLogs() {
                     className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1.5 ${
                       isActive
                         ? 'bg-slate-900 text-white shadow-sm'
-                        : 'bg-white/70 text-slate-700 hover:bg-white border border-white'
+                        : 'bg-white/70 text-slate-700 hover:bg-white border border-gray-200'
                     }`}
                   >
                     <span>{tab.label}</span>
@@ -234,7 +246,7 @@ export default function AdminBorrowLogs() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="ค้นหารหัส, ชื่อผู้ยืม, อุปกรณ์..."
-                className="w-full pl-9 pr-3.5 py-2 bg-white/80 border border-white rounded-full text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner"
+                className="w-full pl-9 pr-3.5 py-2 bg-white/90 border border-gray-200 rounded-full text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner"
               />
             </div>
           </div>
@@ -258,145 +270,23 @@ export default function AdminBorrowLogs() {
                 ลองใหม่
               </button>
             </div>
-          ) : filteredList.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">
-              <Clock size={44} className="mx-auto mb-3 opacity-40" />
-              <p className="text-sm font-bold">ไม่มีรายการที่ตรงกับเงื่อนไข</p>
-            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[740px]">
-                <thead>
-                  <tr className="border-b border-gray-200 text-xs font-black text-gray-500 uppercase tracking-wider">
-                    <th className="py-3 px-4">รหัส</th>
-                    <th className="py-3 px-4">ผู้ยืม / รหัส</th>
-                    <th className="py-3 px-4">อุปกรณ์</th>
-                    <th className="py-3 px-4">จำนวน</th>
-                    <th className="py-3 px-4">วันที่ยืม - กำหนดคืน</th>
-                    <th className="py-3 px-4">สถานะ</th>
-                    <th className="py-3 px-4 text-center">จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-xs font-medium text-gray-800">
-                  {filteredList.map((item) => {
-                    const isPending = item.statusType === 'pending';
-                    const isReturned = item.statusType === 'returned';
-                    const isOverdue = item.statusType === 'overdue';
-                    const isBusy = processingId === item.id;
-
-                    return (
-                      <tr key={item.id} className="hover:bg-emerald-50/50 transition-colors">
-                        <td className="py-3.5 px-4 font-mono font-bold text-emerald-900">
-                          REQ-{String(item.id).padStart(4, '0')}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <p className="font-bold text-gray-900">{item.userName}</p>
-                          <p className="text-[11px] text-gray-500">{item.studentId}</p>
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <p className="font-bold text-emerald-950">{item.equipment}</p>
-                          {item.itemCodes && item.itemCodes.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {item.itemCodes.map((code) => (
-                                <span
-                                  key={code}
-                                  className="font-mono text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200 px-1.5 py-0.5 rounded"
-                                >
-                                  {code}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {item.purpose && (
-                            <p className="text-[10px] text-gray-400 truncate max-w-[180px] mt-0.5">
-                              {item.purpose}
-                            </p>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-4">{item.qty} ชิ้น</td>
-                        <td className="py-3.5 px-4 text-gray-500 whitespace-nowrap">
-                          {item.borrowDate} {item.dueDate ? `ถึง ${item.dueDate}` : ''}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`px-2.5 py-1 rounded-full text-[11px] font-black inline-flex items-center gap-1 ${
-                              isReturned
-                                ? 'bg-gray-100 text-gray-600'
-                                : isPending
-                                ? 'bg-indigo-100 text-indigo-800'
-                                : isOverdue
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-emerald-100 text-emerald-800'
-                            }`}
-                          >
-                            {isReturned ? (
-                              <CheckCircle2 size={12} />
-                            ) : isOverdue ? (
-                              <AlertCircle size={12} />
-                            ) : (
-                              <Clock size={12} />
-                            )}
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          {!isReturned ? (
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                onClick={() => void handleProcessItem(item.id)}
-                                disabled={isBusy}
-                                className={`${
-                                  isPending
-                                    ? 'bg-indigo-600 hover:bg-indigo-700'
-                                    : 'bg-emerald-600 hover:bg-emerald-700'
-                                } disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-xl text-[11px] transition-all cursor-pointer shadow inline-flex items-center gap-1`}
-                              >
-                                {isBusy && <Loader2 size={12} className="animate-spin" />}
-                                {isPending ? 'อนุมัติรับอุปกรณ์' : 'รับคืนอุปกรณ์'}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setIsScannerOpen(true)}
-                                className="bg-slate-800 hover:bg-slate-900 text-white font-bold px-2.5 py-1.5 rounded-xl text-[11px] transition-all cursor-pointer shadow inline-flex items-center gap-1"
-                                title="เปิดกล้องสแกน QR Code"
-                              >
-                                <QrCode size={13} />
-                                สแกน QR
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
-                              คืนแล้ว
-                            </span>
-                          )}
-                          <button
-                            onClick={() => void handleDeleteItem(item.id)}
-                            disabled={isBusy}
-                            className="text-red-400 hover:text-red-600 disabled:opacity-40 p-1.5 ml-1 transition-colors cursor-pointer inline-block align-middle"
-                            title="ลบรายการ"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <BorrowLogsTable
+              logs={filteredList}
+              processingId={processingId}
+              onConfirmPickup={handleConfirmPickup}
+              onReturn={handleReturn}
+              onDelete={handleDelete}
+              onOpenScanner={() => setIsScannerOpen(true)}
+            />
           )}
         </div>
       </div>
 
-      {/* Modal สแกน QR Code */}
       <ScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
-        onSuccess={() => {
-          void fetchBorrows();
-          notifyBorrowUpdated();
-        }}
+        onSuccess={() => void fetchBorrows()}
       />
     </div>
   );
