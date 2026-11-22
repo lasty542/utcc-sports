@@ -78,24 +78,24 @@ export default function Login() {
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-600/15 via-transparent to-black/50 pointer-events-none z-0" />
 
       <div className="relative z-10 w-full max-w-[440px] sm:max-w-[460px] mx-auto flex flex-col items-center my-auto">
-        {/* University Logo */}
+        {/* University Logo Card (Full Width matching login card) */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
-          className="mb-3.5 flex justify-center"
+          className="w-full mb-3"
         >
-          <div className="bg-white/90 backdrop-blur-md px-6 py-3 rounded-2xl shadow-lg border border-white/40 flex items-center justify-center">
+          <div className="w-full bg-white/95 backdrop-blur-xl rounded-[24px] sm:rounded-[28px] py-4 sm:py-5 px-6 shadow-xl border border-white/80 flex items-center justify-center">
             <img
               src="/UTCC_SubMain2-1.png"
               alt="มหาวิทยาลัยหอการค้าไทย (UTCC)"
-              className="h-14 sm:h-16 w-auto object-contain drop-shadow-xs"
+              className="h-16 sm:h-20 w-auto max-w-[85%] object-contain drop-shadow-xs transition-transform duration-300 hover:scale-[1.02]"
             />
           </div>
         </motion.div>
 
         {/* Brand Header */}
-        <div className="w-full flex items-center justify-between mb-2.5">
+        <div className="w-full flex items-center justify-between mb-2.5 px-1">
           <div className="inline-flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-200 shadow-md">
             <Leaf className="text-emerald-600" size={16} />
             <span className="text-xs font-black tracking-wider text-slate-900 uppercase">
