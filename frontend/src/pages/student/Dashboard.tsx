@@ -143,6 +143,20 @@ export default function StudentDashboard() {
     };
   }, []);
 
+  // Real-time Auto-polling ทุกๆ 4 วินาที เพื่ออัปเดตจำนวนสต็อกคงเหลือเมื่อมีคนยืมหรือคืน
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const fresh = await listEquipment();
+        setEquipments(fresh);
+      } catch {
+        // Silent fail during background polling
+      }
+    }, 4000);
+
+    return () => clearInterval(pollInterval);
+  }, []);
+
   const categories = useMemo(() => {
     const dynamicCats = equipments
       .map((item) => item.category)

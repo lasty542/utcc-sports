@@ -6,7 +6,7 @@ import type { Request, Response } from 'express';
 import { pool } from '../config/db';
 import { isDateString, readString } from '../utils';
 
-type BorrowStatusDb = 'pending' | 'borrowing' | 'returned';
+type BorrowStatusDb = 'pending' | 'approved' | 'borrowing' | 'borrowed' | 'returned';
 
 interface BorrowRow {
   id: number;
@@ -25,12 +25,19 @@ interface BorrowRow {
 
 // แปลงข้อมูลการยืมจากฐานข้อมูลพร้อมคำนวณป้ายสถานะภาษาไทยและสถานะเกินกำหนดคืน
 function toBorrow(row: BorrowRow) {
-  const overdue = row.status === 'borrowing' && row.is_overdue;
-  const statusType = overdue ? 'overdue' : row.status;
+  const isBorrowing = row.status === 'borrowing' || row.status === 'borrowed';
+  const overdue = isBorrowing && row.is_overdue;
+  const statusType = overdue
+    ? 'overdue'
+    : row.status === 'borrowed'
+    ? 'borrowing'
+    : row.status === 'approved'
+    ? 'pending'
+    : row.status;
 
   let statusLabel = 'กำลังยืม';
   if (overdue) statusLabel = 'เกินกำหนดส่งคืน';
-  else if (row.status === 'pending') statusLabel = 'รออนุมัติรับอุปกรณ์';
+  else if (row.status === 'pending' || row.status === 'approved') statusLabel = 'รออนุมัติรับอุปกรณ์';
   else if (row.status === 'returned') statusLabel = 'คืนเรียบร้อยแล้ว';
 
   return {
@@ -142,7 +149,7 @@ export async function getQrToken(req: Request, res: Response): Promise<void> {
     if (Number.isInteger(requestedBorrowId) && requestedBorrowId > 0) {
       const specific = await pool.query<BorrowRow>(
         `${BORROW_SELECT}
-         WHERE b.id = $1 AND b.user_id = $2 AND b.status IN ('pending', 'borrowing')`,
+         WHERE b.id = $1 AND b.user_id = $2 AND b.status IN ('pending', 'approved', 'borrowing', 'borrowed')`,
         [requestedBorrowId, req.user.id]
       );
       targetBorrow = specific.rows[0];
@@ -151,7 +158,7 @@ export async function getQrToken(req: Request, res: Response): Promise<void> {
     if (!targetBorrow) {
       const latestActive = await pool.query<BorrowRow>(
         `${BORROW_SELECT}
-         WHERE b.user_id = $1 AND b.status IN ('pending', 'borrowing')
+         WHERE b.user_id = $1 AND b.status IN ('pending', 'approved', 'borrowing', 'borrowed')
          ORDER BY b.id DESC
          LIMIT 1`,
         [req.user.id]
@@ -311,7 +318,7 @@ export async function confirmPickup(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (borrow.status !== 'pending') {
+    if (borrow.status !== 'pending' && borrow.status !== 'approved') {
       await client.query('ROLLBACK');
       res.status(409).json({
         message: borrow.status === 'returned' ? 'รายการนี้คืนแล้ว' : 'รายการนี้ยืนยันรับอุปกรณ์แล้ว',
@@ -408,7 +415,10 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    res.json({ borrow: toBorrow(row) });
+    res.json({
+      message: `บันทึกการส่งคืนอุปกรณ์ "${row.equipment}" เรียบร้อยแล้ว`,
+      borrow: toBorrow(row),
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error(error);
@@ -435,9 +445,28 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
     const currentStep = Math.floor(Math.floor(Date.now() / 1000) / 30);
     let targetBorrowId: number | null = null;
     let targetStudentId: string | null = null;
+    let tokenStr = rawToken.trim();
 
-    if (rawToken.startsWith('UTCC-PASS:')) {
-      const parts = rawToken.split(':');
+    // 1. ตรวจสอบกรณีส่งข้อมูลมาเป็น JSON (จาก Dynamic QR Code ของนักศึกษา)
+    if (tokenStr.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(tokenStr);
+        if (parsed.requestId && Number.isInteger(Number(parsed.requestId))) {
+          targetBorrowId = Number(parsed.requestId);
+        }
+        if (parsed.studentId) {
+          targetStudentId = String(parsed.studentId).trim();
+        }
+        if (parsed.token && typeof parsed.token === 'string') {
+          tokenStr = parsed.token.trim();
+        }
+      } catch {
+        // fallback to string processing
+      }
+    }
+
+    if (!targetBorrowId && tokenStr.startsWith('UTCC-PASS:')) {
+      const parts = tokenStr.split(':');
       const borrowId = Number(parts[1]);
       const step = Number(parts[2]);
       const sig = parts[3] || '';
@@ -469,8 +498,8 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
       }
 
       targetBorrowId = found.id;
-    } else if (rawToken.startsWith('UTCC-ID:')) {
-      const parts = rawToken.split(':');
+    } else if (!targetBorrowId && tokenStr.startsWith('UTCC-ID:')) {
+      const parts = tokenStr.split(':');
       const studentId = parts[1] || '';
       const step = Number(parts[2]);
       const sig = parts[3] || '';
@@ -492,9 +521,9 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
       }
 
       targetStudentId = studentId;
-    } else {
+    } else if (!targetBorrowId) {
       // Manual fallback (Admin กรอกรหัสนักศึกษา, REQ-0001, หรือ Borrow ID)
-      const cleaned = rawToken
+      const cleaned = tokenStr
         .replace(/^UTCC-QR-/i, '')
         .replace(/^REQ-0*/i, '')
         .split(':')[0]
@@ -509,7 +538,7 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         `SELECT b.id
          FROM borrows b
          JOIN users u ON u.id = b.user_id
-         WHERE u.student_id = $1 AND b.status IN ('pending', 'borrowing')
+         WHERE u.student_id = $1 AND b.status IN ('pending', 'approved', 'borrowing')
          ORDER BY b.id DESC
          LIMIT 1`,
         [cleaned]
@@ -530,7 +559,7 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         `SELECT b.id
          FROM borrows b
          JOIN users u ON u.id = b.user_id
-         WHERE u.student_id = $1 AND b.status IN ('pending', 'borrowing')
+         WHERE u.student_id = $1 AND b.status IN ('pending', 'approved', 'borrowing')
          ORDER BY b.id DESC
          LIMIT 1`,
         [targetStudentId]
@@ -543,7 +572,7 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // ดำเนินการเปลี่ยนสถานะแบบ Atomic Transaction: pending -> borrowing (รับของ), borrowing -> returned (คืนของ)
+    // ดำเนินการเปลี่ยนสถานะแบบ Atomic Transaction: pending/approved -> borrowing (รับของ), borrowing -> returned (คืนของ)
     const client = await pool.connect();
     let action: 'pickup' | 'return' = 'return';
 
@@ -570,7 +599,7 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         return;
       }
 
-      if (borrow.status === 'pending') {
+      if (borrow.status === 'pending' || borrow.status === 'approved') {
         action = 'pickup';
         await client.query(`UPDATE borrows SET status = 'borrowing' WHERE id = $1`, [borrow.id]);
       } else {

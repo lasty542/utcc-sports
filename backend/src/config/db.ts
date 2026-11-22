@@ -82,12 +82,12 @@ export async function initDatabase(): Promise<void> {
       purpose TEXT,
       borrow_date DATE NOT NULL,
       due_date DATE NOT NULL,
-      status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'borrowing', 'returned')),
+      status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'approved', 'borrowing', 'borrowed', 'returned')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     ALTER TABLE borrows DROP CONSTRAINT IF EXISTS borrows_status_check;
-    ALTER TABLE borrows ADD CONSTRAINT borrows_status_check CHECK (status IN ('pending', 'borrowing', 'returned'));
+    ALTER TABLE borrows ADD CONSTRAINT borrows_status_check CHECK (status IN ('pending', 'approved', 'borrowing', 'borrowed', 'returned'));
 
     CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email));
     CREATE INDEX IF NOT EXISTS idx_equipment_category ON equipment (category);

@@ -15,7 +15,7 @@ export interface BorrowItem {
   borrowDate: string;
   dueDate: string;
   status: string;
-  statusType: 'pending' | 'borrowing' | 'returned' | 'overdue';
+  statusType: 'pending' | 'approved' | 'borrowing' | 'borrowed' | 'returned' | 'overdue';
 }
 
 export interface CreateBorrowPayload {
@@ -64,9 +64,11 @@ export async function confirmPickup(
 }
 
 // บันทึกการคืนอุปกรณ์กีฬาตามรหัสรายการยืม
-export async function returnBorrow(id: number): Promise<BorrowItem> {
-  const { data } = await api.patch<{ borrow: BorrowItem }>(`/borrow/${id}/return`);
-  return data.borrow;
+export async function returnBorrow(
+  id: number
+): Promise<{ message: string; borrow: BorrowItem }> {
+  const { data } = await api.patch<{ message: string; borrow: BorrowItem }>(`/borrow/${id}/return`);
+  return data;
 }
 
 // ลบรายการยืมออกจากระบบ (สำหรับเจ้าหน้าที่)

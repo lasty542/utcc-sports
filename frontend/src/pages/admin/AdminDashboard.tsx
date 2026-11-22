@@ -16,8 +16,9 @@ import {
   Activity,
   Bell,
   LayoutGrid,
+  Sparkles,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import ScannerModal from './components/ScannerModal';
 import SettingsModal from '../../components/SettingsModal';
@@ -37,6 +38,7 @@ export default function AdminDashboard() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotiOpen, setIsNotiOpen] = useState(false);
   const [allBorrows, setAllBorrows] = useState<BorrowItem[]>([]);
+  const [realtimeToast, setRealtimeToast] = useState<string | null>(null);
 
   // โหลดรายการยืมล่าสุดเพื่ออัปเดตตัวเลขและตารางบนแดชบอร์ด
   const fetchBorrows = useCallback(async () => {
@@ -60,6 +62,40 @@ export default function AdminDashboard() {
     return () => {
       active = false;
     };
+  }, []);
+
+  // Real-time Auto-polling ทุกๆ 3.5 วินาที เพื่อดึงรายการล่าสุดและแจ้งเตือนเมื่อมีการยืม/คืน
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const freshList = await listBorrows();
+        setAllBorrows((prevList) => {
+          if (prevList.length > 0) {
+            // เช็คว่ามีรายการขอยืมใหม่เข้ามาหรือไม่
+            if (freshList.length > prevList.length) {
+              const newest = freshList[0];
+              setRealtimeToast(`มีคำขอยืมใหม่: ${newest.equipment} (${newest.userName})`);
+              setTimeout(() => setRealtimeToast(null), 4500);
+            } else {
+              // เช็คการเปลี่ยนสถานะ
+              for (const fresh of freshList) {
+                const old = prevList.find((p) => p.id === fresh.id);
+                if (old && old.status !== fresh.status) {
+                  setRealtimeToast(`อัปเดตสถานะ: ${fresh.equipment} (${fresh.studentId}) เป็น "${fresh.status}"`);
+                  setTimeout(() => setRealtimeToast(null), 4500);
+                  break;
+                }
+              }
+            }
+          }
+          return freshList;
+        });
+      } catch {
+        // Polling silent fail
+      }
+    }, 3500);
+
+    return () => clearInterval(interval);
   }, []);
 
   const activeBorrowCount = allBorrows.filter(
@@ -87,6 +123,32 @@ export default function AdminDashboard() {
       <div className="fixed inset-0 bg-gradient-to-b from-sky-900/15 via-emerald-950/10 to-emerald-950/35 pointer-events-none z-0" />
 
       <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-7 pt-5">
+        {/* Real-time Dynamic Toast Notification for Staff */}
+        <AnimatePresence>
+          {realtimeToast && (
+            <motion.div
+              initial={{ y: -20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -20, opacity: 0 }}
+              className="mb-4 bg-emerald-950/90 text-white backdrop-blur-xl border border-emerald-400/40 px-5 py-3 rounded-2xl shadow-2xl flex items-center justify-between gap-3 text-xs font-bold"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-full bg-emerald-500 text-emerald-950 flex items-center justify-center shrink-0">
+                  <Sparkles size={14} />
+                </span>
+                <span>{realtimeToast}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRealtimeToast(null)}
+                className="text-emerald-300 hover:text-white text-[11px] font-normal cursor-pointer"
+              >
+                ปิด
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Top Floating iPadOS Bar + Dynamic Island */}
         <motion.header
           className="flex flex-wrap items-center justify-between gap-3 mb-7"

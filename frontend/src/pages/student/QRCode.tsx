@@ -18,14 +18,16 @@ import {
   Loader2,
   Sparkles,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import { qrCodeStyles as styles } from './QRCode.styles';
 import {
   getQrToken,
   listBorrows,
   confirmPickup,
+  returnBorrow,
   type BorrowItem,
   type QrTokenResponse,
 } from '../../services/borrowService';
@@ -80,8 +82,10 @@ export default function StudentQRCode() {
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<'student' | 'request' | null>(null);
   const [isConfirmingPickup, setIsConfirmingPickup] = useState(false);
+  const [isConfirmingReturn, setIsConfirmingReturn] = useState(false);
   const [pickupMessage, setPickupMessage] = useState<string | null>(null);
   const [pickupError, setPickupError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // ดึง Dynamic QR Token และเวลาที่เหลือจากเซิร์ฟเวอร์
   const fetchToken = useCallback(async (borrowId?: number | null) => {
@@ -110,6 +114,30 @@ export default function StudentQRCode() {
     return () => {
       active = false;
     };
+  }, []);
+
+  // Real-time Auto-polling ทุกๆ 3.5 วินาที สำหรับอัปเดตสถานะเมื่อ Admin สแกน/อนุมัติ
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const freshList = await listBorrows();
+        setBorrows((prevList) => {
+          // ตรวจสอบการเปลี่ยนแปลงสถานะเพื่อแจ้งเตือน
+          for (const fresh of freshList) {
+            const old = prevList.find((p) => p.id === fresh.id);
+            if (old && old.status !== fresh.status) {
+              setToastMessage(`รายการ ${formatRequestCode(fresh.id)} อัปเดตสถานะเป็น: ${fresh.status}`);
+              setTimeout(() => setToastMessage(null), 4000);
+            }
+          }
+          return freshList;
+        });
+      } catch {
+        // Polling silent fail
+      }
+    }, 3500);
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   // โหลด Dynamic QR Token จาก Backend เมื่อเปิดหน้าหรือเปลี่ยนรายการ
@@ -156,6 +184,19 @@ export default function StudentQRCode() {
   const activeBorrow = tokenData?.borrow ?? routeStateBorrow ?? activeBorrows[0] ?? null;
   const timerPercent = Math.round((secondsLeft / 30) * 100);
 
+  // ข้อมูล QR Code แบบ JSON สำหรับกล้องสแกนหรือระบบตรวจสิทธิ์
+  const qrPayload = useMemo(() => {
+    if (!tokenData) return '';
+    return JSON.stringify({
+      type: 'UTCC_SPORT_PASS',
+      requestId: activeBorrow?.id ?? 0,
+      requestCode: activeBorrow ? formatRequestCode(activeBorrow.id) : null,
+      studentId: studentId,
+      token: tokenData.qrToken,
+      pin: tokenData.pin,
+    });
+  }, [tokenData, activeBorrow, studentId]);
+
   // คัดลอกรหัสคำขอหรือรหัสนักศึกษาไปยังคลิปบอร์ด
   const handleCopy = (value: string, key: 'student' | 'request') => {
     void navigator.clipboard.writeText(value);
@@ -180,6 +221,26 @@ export default function StudentQRCode() {
       setPickupError('ไม่สามารถยืนยันรับอุปกรณ์ได้ กรุณาลองใหม่หรือติดต่อเจ้าหน้าที่');
     } finally {
       setIsConfirmingPickup(false);
+    }
+  };
+
+  // กดยืนยันคืนอุปกรณ์ด้วยตนเองโดยผูกกับบัญชีนักศึกษาปัจจุบัน
+  const handleSelfConfirmReturn = async () => {
+    if (!activeBorrow || isConfirmingReturn) return;
+    setIsConfirmingReturn(true);
+    setPickupError(null);
+    setPickupMessage(null);
+
+    try {
+      const res = await returnBorrow(activeBorrow.id);
+      setBorrows((prev) => prev.map((b) => (b.id === activeBorrow.id ? res.borrow : b)));
+      setTokenData((prev) => (prev ? { ...prev, borrow: res.borrow } : prev));
+      setPickupMessage(res.message || 'บันทึกการส่งคืนอุปกรณ์สำเร็จ');
+      void fetchToken(activeBorrow.id);
+    } catch {
+      setPickupError('ไม่สามารถบันทึกการคืนได้ กรุณาลองใหม่หรือติดต่อเจ้าหน้าที่');
+    } finally {
+      setIsConfirmingReturn(false);
     }
   };
 
@@ -333,7 +394,7 @@ export default function StudentQRCode() {
             ) : (
               <div className="inline-flex flex-col items-center bg-white p-4 rounded-3xl border-2 border-emerald-100 shadow-lg mb-4">
                 <QRCodeSVG
-                  value={tokenData.qrToken}
+                  value={qrPayload || tokenData.qrToken}
                   size={196}
                   level="M"
                   fgColor="#064e3b"
@@ -346,12 +407,27 @@ export default function StudentQRCode() {
             )}
 
             <p className="text-[11px] text-gray-500 max-w-sm mx-auto leading-relaxed">
-              {activeBorrow?.statusType === 'pending'
+              {activeBorrow?.statusType === 'pending' || activeBorrow?.statusType === 'approved'
                 ? 'ยื่น QR Code นี้ให้เจ้าหน้าที่สแกน หรือกดยืนยันรับอุปกรณ์ด้านล่างด้วยบัญชีของคุณได้ทันที'
                 : activeBorrow
-                ? 'ยื่น QR Code นี้ให้เจ้าหน้าที่สแกนเมื่อนำอุปกรณ์มาส่งคืน'
+                ? 'ยื่น QR Code นี้ให้เจ้าหน้าที่สแกน หรือกดยืนยันคืนอุปกรณ์ด้านล่างด้วยบัญชีของคุณเมื่อนำอุปกรณ์มาส่ง'
                 : 'แสดง QR Code นี้ต่อเจ้าหน้าที่เคาน์เตอร์งานกีฬา เพื่อยืนยันตัวตน'}
             </p>
+
+            {/* Real-time Status Toast Notification */}
+            <AnimatePresence>
+              {toastMessage && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="mt-4 bg-emerald-900 text-emerald-100 text-xs font-bold px-4 py-2.5 rounded-2xl shadow-lg border border-emerald-500/40 inline-flex items-center gap-2"
+                >
+                  <Sparkles size={16} className="text-emerald-300 shrink-0" />
+                  <span>{toastMessage}</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {pickupMessage && (
               <div className="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-4 py-2.5 rounded-2xl inline-flex items-center gap-2">
@@ -366,7 +442,7 @@ export default function StudentQRCode() {
               </div>
             )}
 
-            {activeBorrow?.statusType === 'pending' && (
+            {(activeBorrow?.statusType === 'pending' || activeBorrow?.statusType === 'approved') && (
               <div className="mt-4 max-w-sm mx-auto">
                 <button
                   type="button"
@@ -382,7 +458,28 @@ export default function StudentQRCode() {
                   กดยืนยันรับอุปกรณ์ (บัญชี: {studentId})
                 </button>
                 <p className="text-[10px] text-gray-400 mt-1.5">
-                  กรณีสแกนกล้องไม่ได้ ระบบจะใช้รหัสนักศึกษาของคุณที่ล็อกอินอยู่อัตโนมัติ ไม่ต้องกรอกซ้ำ
+                  ระบบผูกกับบัญชีนักศึกษาของคุณที่เข้าสู่ระบบอยู่โดยตรง เปลี่ยนสถานะทันทีไม่ต้องกรอก PIN ซ้ำ
+                </p>
+              </div>
+            )}
+
+            {(activeBorrow?.statusType === 'borrowing' || activeBorrow?.statusType === 'overdue') && (
+              <div className="mt-4 max-w-sm mx-auto">
+                <button
+                  type="button"
+                  onClick={() => void handleSelfConfirmReturn()}
+                  disabled={isConfirmingReturn}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-3 px-4 rounded-2xl text-xs shadow-md cursor-pointer inline-flex items-center justify-center gap-2 transition-all"
+                >
+                  {isConfirmingReturn ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <RotateCcw size={15} />
+                  )}
+                  กดยืนยันคืนอุปกรณ์ (บัญชี: {studentId})
+                </button>
+                <p className="text-[10px] text-gray-400 mt-1.5">
+                  เมื่อนำอุปกรณ์มาส่งที่เคาน์เตอร์แล้ว สามารถกดปุ่มนี้เพื่อเปลี่ยนสถานะเป็นคืนแล้ว และคืนสต็อกเข้าคลังทันที
                 </p>
               </div>
             )}

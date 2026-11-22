@@ -1,7 +1,7 @@
 /**
- * หน้าต่าง Modal สำหรับนักศึกษาใช้กรอกรายละเอียดและส่งคำขอยืมอุปกรณ์กีฬา
+ * หน้าต่าง Modal สำหรับนักศึกษาใช้กรอกรายละเอียดและส่งคำขอยืมอุปกรณ์กีฬา (Date Picker Calendar Version)
  */
-import { useState, type FormEvent } from 'react';
+import { useState, useMemo, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -28,10 +28,8 @@ export interface BorrowModalProps {
   onSuccess: () => void;
 }
 
-type DurationDays = 1 | 3 | 7;
 type TimeSlot = 'morning' | 'afternoon';
 
-const DURATION_OPTIONS: DurationDays[] = [1, 3, 7];
 const PURPOSE_OPTIONS = [
   'เล่นกีฬา / ออกกำลังกาย',
   'ฝึกซ้อมชมรมกีฬา',
@@ -57,6 +55,7 @@ function addDays(base: Date, days: number): Date {
 
 // แปลงวันที่ YYYY-MM-DD ให้เป็นข้อความวันที่ภาษาไทยแบบย่อ
 function formatThaiDate(isoDate: string): string {
+  if (!isoDate) return '-';
   const [y, m, d] = isoDate.split('-').map(Number);
   if (!y || !m || !d) return isoDate;
   const date = new Date(y, m - 1, d);
@@ -65,6 +64,18 @@ function formatThaiDate(isoDate: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+// คำนวณจำนวนวันระหว่างวันที่รับและวันที่ส่งคืน
+function calculateDays(startIso: string, endIso: string): number {
+  if (!startIso || !endIso) return 1;
+  const [y1, m1, d1] = startIso.split('-').map(Number);
+  const [y2, m2, d2] = endIso.split('-').map(Number);
+  if (!y1 || !y2) return 1;
+  const dStart = new Date(y1, m1 - 1, d1).getTime();
+  const dEnd = new Date(y2, m2 - 1, d2).getTime();
+  const diffDays = Math.round((dEnd - dStart) / (1000 * 60 * 60 * 24));
+  return Math.max(1, diffDays === 0 ? 1 : diffDays);
 }
 
 // คอมโพเนนต์ฟอร์มกรอกข้อมูลการยืมอุปกรณ์และหน้าสรุปผลหลังบันทึกสำเร็จ
@@ -81,9 +92,13 @@ function BorrowFormContent({
   const maxQty = Math.max(0, equipment.available);
   const equipCode = formatEquipCode(equipment.id);
 
+  const today = useMemo(() => new Date(), []);
+  const todayIso = useMemo(() => toLocalIsoDate(today), [today]);
+
   const [quantity, setQuantity] = useState(1);
-  const [durationDays, setDurationDays] = useState<DurationDays>(1);
-  const [timeSlot, setTimeSlot] = useState<TimeSlot>('morning');
+  const [borrowDate, setBorrowDate] = useState(todayIso);
+  const [dueDate, setDueDate] = useState(() => toLocalIsoDate(addDays(today, 1)));
+  const [timeSlot, setTimeSlot] = useState<TimeSlot>('afternoon');
   const [selectedPurpose, setSelectedPurpose] = useState<PurposeOption>('เล่นกีฬา / ออกกำลังกาย');
   const [customPurpose, setCustomPurpose] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -93,10 +108,8 @@ function BorrowFormContent({
   const isCustomPurpose = selectedPurpose === 'อื่นๆ (ระบุเอง)';
   const finalPurpose = isCustomPurpose ? customPurpose.trim() : selectedPurpose;
 
-  const today = new Date();
-  const borrowDate = toLocalIsoDate(today);
-  const dueDate = toLocalIsoDate(addDays(today, durationDays));
-  const dueTimeLabel = timeSlot === 'morning' ? '12:00 น. (รอบเช้า)' : '17:00 น. (รอบบ่าย)';
+  const dueTimeLabel = timeSlot === 'morning' ? 'รอบเช้า (ภายใน 12:00 น.)' : 'รอบบ่าย (ภายใน 17:00 น.)';
+  const durationCount = calculateDays(borrowDate, dueDate);
 
   // ลดจำนวนอุปกรณ์ที่ต้องการยืมลง 1 ชิ้น (ต่ำสุด 1)
   const handleDecrease = () => {
@@ -119,6 +132,18 @@ function BorrowFormContent({
     }
     if (quantity < 1 || quantity > maxQty) {
       setError(`กรุณาระบุจำนวนระหว่าง 1 ถึง ${maxQty} ชิ้น`);
+      return;
+    }
+    if (!borrowDate) {
+      setError('กรุณาเลือกวันที่ต้องการรับอุปกรณ์');
+      return;
+    }
+    if (!dueDate) {
+      setError('กรุณาเลือกวันที่กำหนดส่งคืน');
+      return;
+    }
+    if (dueDate < borrowDate) {
+      setError('วันที่กำหนดส่งคืนต้องไม่ย้อนหลังกว่าวันที่รับอุปกรณ์');
       return;
     }
     if (!finalPurpose) {
@@ -155,15 +180,19 @@ function BorrowFormContent({
         <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4 shadow-sm">
           <CheckCircle2 size={34} />
         </div>
-        <h2 className="text-xl font-black text-emerald-950 mb-1">ส่งคำขอยืมอุปกรณ์สำเร็จ!</h2>
+        <h2 className="text-lg sm:text-xl font-black text-emerald-950 mb-1">
+          ส่งคำขอยืมอุปกรณ์สำเร็จ (รออนุมัติ / พร้อมรับอุปกรณ์)
+        </h2>
         <p className="text-xs text-gray-500 mb-5 leading-relaxed">
-          กรุณานำ QR Code ไปแสดงต่อเจ้าหน้าที่เคาน์เตอร์งานกีฬาเพื่อรับอุปกรณ์
+          ระบบได้บันทึกคำขอยืมเรียบร้อยแล้ว คุณสามารถนำ QR Code ไปแสดงต่อเจ้าหน้าที่ หรือกดยืนยันรับอุปกรณ์เมื่อได้รับของ
         </p>
 
         <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 text-left text-xs space-y-2 mb-5">
           <div className="flex justify-between">
-            <span className="text-gray-500">รหัสอุปกรณ์</span>
-            <span className="font-mono font-bold text-emerald-900">{equipCode}</span>
+            <span className="text-gray-500">รหัสคำขอยืม</span>
+            <span className="font-mono font-bold text-emerald-900">
+              REQ-{String(createdBorrow.id).padStart(4, '0')}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-500">อุปกรณ์</span>
@@ -174,9 +203,13 @@ function BorrowFormContent({
             <span className="font-bold text-emerald-800">{createdBorrow.qty} ชิ้น</span>
           </div>
           <div className="flex justify-between">
+            <span className="text-gray-500">วันที่รับอุปกรณ์</span>
+            <span className="font-bold text-slate-800">{formatThaiDate(createdBorrow.borrowDate)}</span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-gray-500">กำหนดส่งคืน</span>
             <span className="font-bold text-amber-700">
-              {formatThaiDate(createdBorrow.dueDate)} • {dueTimeLabel}
+              {formatThaiDate(createdBorrow.dueDate)} • {dueTimeLabel} ({durationCount} วัน)
             </span>
           </div>
         </div>
@@ -187,17 +220,17 @@ function BorrowFormContent({
             onClick={onClose}
             className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-2xl text-xs cursor-pointer"
           >
-            ทำรายการต่อ
+            ยืมอุปกรณ์ชิ้นอื่นต่อ
           </button>
           <button
             type="button"
             onClick={() => {
               onClose();
-              navigate('/student/qrcode');
+              navigate('/student/qrcode', { state: { borrow: createdBorrow } });
             }}
             className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-2xl text-xs cursor-pointer shadow-md inline-flex items-center justify-center gap-1.5"
           >
-            <QrCode size={16} /> ไปรับ QR Code
+            <QrCode size={16} /> ไปที่หน้า QR Code เพื่อรับอุปกรณ์
           </button>
         </div>
       </div>
@@ -236,7 +269,7 @@ function BorrowFormContent({
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 text-xs" noValidate>
+      <form onSubmit={handleSubmit} className="space-y-3.5 text-xs" noValidate>
         {/* Stepper จำนวนชิ้น */}
         <div>
           <label className="block font-bold text-emerald-950 mb-1.5">
@@ -280,59 +313,73 @@ function BorrowFormContent({
           </div>
         </div>
 
-        {/* ตัวเลือกจำนวนวัน */}
+        {/* ตัวเลือกปฏิทิน: วันที่รับอุปกรณ์ และ วันที่กำหนดคืน */}
         <div>
-          <label className="font-bold text-emerald-950 mb-1.5 flex items-center gap-1.5">
-            <Calendar size={14} className="text-emerald-600" /> ระยะเวลายืม
-          </label>
-          <div className="grid grid-cols-3 gap-2">
-            {DURATION_OPTIONS.map((days) => (
-              <button
-                key={days}
-                type="button"
-                onClick={() => setDurationDays(days)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label className="font-bold text-slate-800 mb-1 flex items-center gap-1.5 text-xs">
+                <Calendar size={13} className="text-emerald-600" /> วันที่ต้องการรับอุปกรณ์
+              </label>
+              <input
+                type="date"
+                min={todayIso}
+                value={borrowDate}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBorrowDate(val);
+                  if (dueDate < val) {
+                    setDueDate(val);
+                  }
+                }}
                 disabled={isSubmitting}
-                className={`py-2.5 rounded-xl font-bold border transition-all cursor-pointer ${
-                  durationDays === days
-                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-emerald-50'
-                }`}
-              >
-                {days} วัน
-              </button>
-            ))}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs"
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-800 mb-1 flex items-center gap-1.5 text-xs">
+                <Calendar size={13} className="text-amber-600" /> วันที่กำหนดส่งคืน
+              </label>
+              <input
+                type="date"
+                min={borrowDate || todayIso}
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                disabled={isSubmitting}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 shadow-xs"
+              />
+            </div>
           </div>
         </div>
 
         {/* ตัวเลือกช่วงเวลา */}
         <div>
           <label className="font-bold text-emerald-950 mb-1.5 flex items-center gap-1.5">
-            <Clock size={14} className="text-emerald-600" /> ช่วงเวลาที่รับ-ส่งคืน
+            <Clock size={13} className="text-emerald-600" /> ช่วงเวลาที่รับ-ส่งคืน
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setTimeSlot('morning')}
               disabled={isSubmitting}
-              className={`py-2.5 px-3 rounded-xl font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`py-2 px-3 rounded-xl font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 timeSlot === 'morning'
                   ? 'bg-emerald-900 text-white border-emerald-900 shadow-sm'
                   : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-emerald-50'
               }`}
             >
-              <Sun size={14} /> รอบเช้า (12:00 น.)
+              <Sun size={14} /> รอบเช้า (09:00 - 12:00)
             </button>
             <button
               type="button"
               onClick={() => setTimeSlot('afternoon')}
               disabled={isSubmitting}
-              className={`py-2.5 px-3 rounded-xl font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`py-2 px-3 rounded-xl font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 timeSlot === 'afternoon'
                   ? 'bg-emerald-900 text-white border-emerald-900 shadow-sm'
                   : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-emerald-50'
               }`}
             >
-              <Sunset size={14} /> รอบบ่าย (17:00 น.)
+              <Sunset size={14} /> รอบบ่าย (13:00 - 17:00)
             </button>
           </div>
         </div>
@@ -354,10 +401,10 @@ function BorrowFormContent({
                     setSelectedPurpose(option);
                     if (error) setError(null);
                   }}
-                  className={`py-2.5 px-3 rounded-xl font-bold border text-[11px] transition-all cursor-pointer text-center ${
+                  className={`py-2 px-2.5 rounded-xl font-bold border text-[11px] transition-all cursor-pointer text-center ${
                     active
                       ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                      : 'bg-white/75 text-gray-700 border-gray-200 hover:bg-emerald-50'
+                      : 'bg-white/80 text-gray-700 border-gray-200 hover:bg-emerald-50'
                   }`}
                 >
                   {option}
@@ -384,7 +431,7 @@ function BorrowFormContent({
                     if (error) setError(null);
                   }}
                   disabled={isSubmitting}
-                  className="mt-2.5 w-full bg-white/85 border border-emerald-200 rounded-2xl px-3.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  className="mt-2 w-full bg-white border border-emerald-300 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   required
                 />
               </motion.div>
@@ -392,7 +439,7 @@ function BorrowFormContent({
           </AnimatePresence>
         </div>
 
-        {/* Summary Box (กล่องสรุปบิลก่อนกดยืนยัน) */}
+        {/* Summary Box (กล่องสรุปบิลก่อนกดยืนยัน - อัปเดตแบบ Real-time) */}
         <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-3.5 space-y-1.5">
           <div className="flex items-center gap-1.5 font-black text-emerald-950 pb-1.5 border-b border-emerald-200/70">
             <Receipt size={14} className="text-emerald-700" /> สรุปรายการขอยืมอุปกรณ์
@@ -409,16 +456,20 @@ function BorrowFormContent({
             <span className="text-gray-600">จำนวนที่ยืม</span>
             <span className="font-bold text-emerald-800">{quantity} ชิ้น</span>
           </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">วันที่รับอุปกรณ์</span>
+            <span className="font-bold text-slate-800">{formatThaiDate(borrowDate)}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-gray-600 shrink-0">กำหนดส่งคืน</span>
+            <span className="font-black text-amber-700 text-right">
+              {formatThaiDate(dueDate)} • {dueTimeLabel} ({durationCount} วัน)
+            </span>
+          </div>
           <div className="flex justify-between gap-2">
             <span className="text-gray-600 shrink-0">วัตถุประสงค์</span>
             <span className="font-bold text-gray-800 text-right truncate">
               {finalPurpose || 'รอระบุ'}
-            </span>
-          </div>
-          <div className="flex justify-between gap-2">
-            <span className="text-gray-600 shrink-0">วัน-เวลาที่กำหนดคืน</span>
-            <span className="font-black text-amber-700 text-right">
-              {formatThaiDate(dueDate)} • {dueTimeLabel}
             </span>
           </div>
         </div>
@@ -453,11 +504,11 @@ export default function BorrowModal({ equipment, onClose, onSuccess }: BorrowMod
     <AnimatePresence>
       {equipment && (
         <div
-          className="fixed inset-0 bg-slate-900/20 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto"
+          className="fixed inset-0 bg-slate-900/30 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto"
           onClick={onClose}
         >
           <motion.div
-            className="bg-white/70 backdrop-blur-3xl backdrop-saturate-150 rounded-[2.2rem] p-5 sm:p-7 max-w-md w-full shadow-[0_28px_70px_rgba(15,23,42,0.28)] border border-white/80 ring-1 ring-white/50 relative text-slate-900 my-auto max-h-[92vh] overflow-y-auto"
+            className="bg-white/90 backdrop-blur-3xl rounded-[2.2rem] p-5 sm:p-7 max-w-md w-full shadow-2xl border border-white/80 relative text-slate-900 my-auto max-h-[92vh] overflow-y-auto"
             initial={{ scale: 0.92, opacity: 0, y: 12 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 12 }}
@@ -467,7 +518,7 @@ export default function BorrowModal({ equipment, onClose, onSuccess }: BorrowMod
             <button
               type="button"
               onClick={onClose}
-              className="absolute top-5 right-5 text-gray-400 hover:text-gray-700 cursor-pointer"
+              className="absolute top-5 right-5 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
               aria-label="ปิดหน้าต่าง"
             >
               <X size={20} />

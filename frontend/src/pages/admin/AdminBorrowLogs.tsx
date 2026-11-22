@@ -118,7 +118,15 @@ export default function AdminBorrowLogs() {
       returned: 0,
     };
     borrowList.forEach((item) => {
-      map[item.statusType] += 1;
+      if (item.statusType === 'pending' || (item.statusType as string) === 'approved') {
+        map.pending += 1;
+      } else if (item.statusType === 'borrowing' || (item.statusType as string) === 'borrowed') {
+        map.borrowing += 1;
+      } else if (item.statusType === 'overdue') {
+        map.overdue += 1;
+      } else if (item.statusType === 'returned') {
+        map.returned += 1;
+      }
     });
     return map;
   }, [borrowList]);
@@ -126,7 +134,12 @@ export default function AdminBorrowLogs() {
   const filteredList = useMemo(() => {
     const q = search.trim().toLowerCase();
     return borrowList.filter((item) => {
-      if (activeFilter !== 'all' && item.statusType !== activeFilter) return false;
+      if (activeFilter !== 'all') {
+        if (activeFilter === 'pending' && item.statusType !== 'pending' && (item.statusType as string) !== 'approved') return false;
+        if (activeFilter === 'borrowing' && item.statusType !== 'borrowing' && (item.statusType as string) !== 'borrowed') return false;
+        if (activeFilter === 'overdue' && item.statusType !== 'overdue') return false;
+        if (activeFilter === 'returned' && item.statusType !== 'returned') return false;
+      }
       if (!q) return true;
       return (
         item.userName.toLowerCase().includes(q) ||
