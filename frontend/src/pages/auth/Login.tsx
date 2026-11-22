@@ -9,7 +9,6 @@ import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { authService } from '../../services/authService';
 import InstantForgotModal from './components/InstantForgotModal';
-import DemoAccountsBox from './components/DemoAccountsBox';
 import RegisterForm from './components/RegisterForm';
 
 const GOOGLE_ERR_MAP: Record<string, string> = {
@@ -251,13 +250,6 @@ export default function Login() {
                     <span>เข้าสู่ระบบด้วย Google</span>
                   </button>
                 </div>
-
-                <DemoAccountsBox
-                  onSelectAccount={(userIdentifier, userPass) => {
-                    setIdentifier(userIdentifier);
-                    setPassword(userPass);
-                  }}
-                />
               </motion.div>
             ) : (
               <RegisterForm
