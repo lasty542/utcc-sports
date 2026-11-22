@@ -299,9 +299,59 @@ export async function register(req: Request, res: Response): Promise<void> {
   }
 }
 
+// ตรวจสอบรหัสผ่านอย่างยืดหยุ่น: รองรับ Bcrypt ปกติ, ข้อความธรรมดา (Plain Text กรณีตั้งใน Neon Console โดยตรง),
+// และ Hash จากเว็บสร้าง Hash ออนไลน์ (MD5, SHA-256, SHA-1)
+// หากตรวจสอบผ่านด้วยวิธีอื่นที่ไม่ใช่ Bcrypt จะอัปเกรดเป็น Bcrypt ในฐานข้อมูลอัตโนมัติทันที
+async function verifyAndUpgradePassword(password: string, storedHash: string | null | undefined, userId: number): Promise<boolean> {
+  if (!storedHash || typeof storedHash !== 'string') return false;
+  const cleanHash = storedHash.trim();
+  const cleanPass = password.trim();
+
+  // 1. ตรวจสอบแบบ Plain text โดยตรง (กรณีผู้ดูแลระบบ/ผู้ใช้แก้ไขรหัสผ่านเป็นข้อความธรรมดาใน Neon Console)
+  if (cleanHash === password || cleanHash === cleanPass) {
+    try {
+      const newHash = await bcrypt.hash(cleanPass, 10);
+      await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId]);
+    } catch {
+      // ignore
+    }
+    return true;
+  }
+
+  // 2. ตรวจสอบตามมาตรฐาน Bcrypt
+  try {
+    const isBcrypt =
+      (await bcrypt.compare(password, cleanHash)) ||
+      (cleanPass !== password && (await bcrypt.compare(cleanPass, cleanHash)));
+    if (isBcrypt) return true;
+  } catch {
+    // cleanHash อาจไม่ได้เป็นรูปแบบ Bcrypt Hash ที่ถูกต้อง
+  }
+
+  // 3. รองรับ Hash ที่สร้างจากเว็บเครื่องมือสร้าง Hash ออนไลน์ (MD5, SHA-256, SHA-1)
+  const lowerHash = cleanHash.toLowerCase();
+  for (const p of [password, cleanPass]) {
+    const md5 = createHash('md5').update(p).digest('hex').toLowerCase();
+    const sha256 = createHash('sha256').update(p).digest('hex').toLowerCase();
+    const sha1 = createHash('sha1').update(p).digest('hex').toLowerCase();
+
+    if (lowerHash === md5 || lowerHash === sha256 || lowerHash === sha1) {
+      try {
+        const newHash = await bcrypt.hash(cleanPass, 10);
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId]);
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // เข้าสู่ระบบด้วยรหัสนักศึกษา/บัญชีเจ้าหน้าที่ หรืออีเมล และตรวจสอบรหัสผ่าน
 export async function login(req: Request, res: Response): Promise<void> {
-  const identifier = readString(req.body?.identifier ?? req.body?.studentId).trim();
+  const identifier = readString(req.body?.identifier ?? req.body?.studentId ?? req.body?.email ?? req.body?.username).trim();
   const password = readString(req.body?.password);
 
   if (!identifier || !password) {
@@ -327,10 +377,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const passwordMatches =
-      typeof user.password_hash === 'string' && user.password_hash.length > 0
-        ? await bcrypt.compare(password, user.password_hash)
-        : false;
+    const passwordMatches = await verifyAndUpgradePassword(password, user.password_hash, user.id);
 
     if (!passwordMatches) {
       if (
@@ -539,7 +586,7 @@ export async function changePassword(req: Request, res: Response): Promise<void>
         res.status(400).json({ message: 'กรุณากรอกรหัสผ่านปัจจุบัน' });
         return;
       }
-      const matches = await bcrypt.compare(currentPassword, user.password_hash);
+      const matches = await verifyAndUpgradePassword(currentPassword, user.password_hash, user.id);
       if (!matches) {
         res.status(401).json({ message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
         return;

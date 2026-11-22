@@ -614,19 +614,7 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       [borrow.quantity, borrow.equipment_id]
     );
 
-    // 4. อัปเดต sports_equipment ด้วยหากมีตารางนี้ในฐานข้อมูล
-    try {
-      await client.query(
-        `UPDATE sports_equipment
-         SET available_qty = LEAST(total_qty, available_qty + $1)
-         WHERE id = $2`,
-        [borrow.quantity, borrow.equipment_id]
-      );
-    } catch {
-      // ignore
-    }
-
-    // 5. ซิงค์ available_qty จาก equipment_items หากมีชิ้นระบุไว้
+    // 4. ซิงค์ available_qty จาก equipment_items หากมีชิ้นระบุไว้
     try {
       const itemsCount = await client.query<{ count: number }>(
         `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,
@@ -782,22 +770,42 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         return;
       }
 
-      const byStudent = await pool.query<{ id: number }>(
-        `SELECT b.id
-         FROM borrows b
-         JOIN users u ON u.id = b.user_id
-         WHERE u.student_id = $1 AND b.status IN ('pending', 'approved', 'borrowing')
-         ORDER BY b.id DESC
-         LIMIT 1`,
-        [cleaned]
-      );
+      const isReqFormat = /^REQ-0*/i.test(tokenStr);
+      const numericId = Number(cleaned);
 
-      if (byStudent.rows[0]) {
-        targetBorrowId = byStudent.rows[0].id;
-      } else {
-        const numericId = Number(cleaned);
-        if (Number.isInteger(numericId) && numericId > 0) {
-          targetBorrowId = numericId;
+      // ถ้าเป็นรหัสแบบ REQ-0011 หรือตัวเลข ID ของรายการโดยตรง ให้ลองตรวจหา Borrow ID ก่อน
+      if ((isReqFormat || (Number.isInteger(numericId) && numericId > 0 && numericId < 100000)) && Number.isInteger(numericId) && numericId > 0) {
+        const byId = await pool.query<{ id: number }>(
+          `SELECT id FROM borrows WHERE id = $1 AND status IN ('pending', 'approved', 'borrowing', 'borrowed') LIMIT 1`,
+          [numericId]
+        );
+        if (byId.rows[0]) {
+          targetBorrowId = byId.rows[0].id;
+        }
+      }
+
+      if (!targetBorrowId) {
+        // ค้นหาตามรหัสนักศึกษา (ครอบคลุมทั้งรอรับของและกำลังยืม 'borrowing'/'borrowed')
+        const byStudent = await pool.query<{ id: number }>(
+          `SELECT b.id
+           FROM borrows b
+           JOIN users u ON u.id = b.user_id
+           WHERE u.student_id = $1 AND b.status IN ('pending', 'approved', 'borrowing', 'borrowed')
+           ORDER BY b.id DESC
+           LIMIT 1`,
+          [cleaned]
+        );
+
+        if (byStudent.rows[0]) {
+          targetBorrowId = byStudent.rows[0].id;
+        } else if (Number.isInteger(numericId) && numericId > 0) {
+          const byId = await pool.query<{ id: number }>(
+            `SELECT id FROM borrows WHERE id = $1 AND status IN ('pending', 'approved', 'borrowing', 'borrowed') LIMIT 1`,
+            [numericId]
+          );
+          if (byId.rows[0]) {
+            targetBorrowId = byId.rows[0].id;
+          }
         }
       }
     }
@@ -807,7 +815,7 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         `SELECT b.id
          FROM borrows b
          JOIN users u ON u.id = b.user_id
-         WHERE u.student_id = $1 AND b.status IN ('pending', 'approved', 'borrowing')
+         WHERE u.student_id = $1 AND b.status IN ('pending', 'approved', 'borrowing', 'borrowed')
          ORDER BY b.id DESC
          LIMIT 1`,
         [targetStudentId]
@@ -820,7 +828,7 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // ดำเนินการเปลี่ยนสถานะแบบ Atomic Transaction: pending/approved -> borrowing (รับของ), borrowing -> returned (คืนของ)
+    // ดำเนินการเปลี่ยนสถานะแบบ Atomic Transaction: pending/approved -> borrowing (รับของ), borrowing/borrowed -> returned (คืนของ)
     const client = await pool.connect();
     let action: 'pickup' | 'return' = 'return';
 
@@ -871,16 +879,6 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
            WHERE id = $2`,
           [borrow.quantity, borrow.equipment_id]
         );
-        try {
-          await client.query(
-            `UPDATE sports_equipment
-             SET available_qty = LEAST(total_qty, available_qty + $1)
-             WHERE id = $2`,
-            [borrow.quantity, borrow.equipment_id]
-          );
-        } catch {
-          // ignore
-        }
         try {
           const itemsCount = await client.query<{ count: number }>(
             `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,

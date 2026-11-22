@@ -32,10 +32,10 @@ const QR_FILE_READER_ID = 'utcc-qr-file-reader';
 
 // ดึงข้อความ Error จาก Axios Response หรือใช้ข้อความเริ่มต้น
 function getErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError<{ message?: string }>(err)) {
-    return err.response?.data?.message || fallback;
+  if (axios.isAxiosError<{ message?: string; error?: string }>(err)) {
+    return err.response?.data?.message || err.response?.data?.error || fallback;
   }
-  return fallback;
+  return err instanceof Error ? err.message : fallback;
 }
 
 // คอมโพเนนต์ Modal สแกนรับ-คืนอุปกรณ์สำหรับเจ้าหน้าที่
