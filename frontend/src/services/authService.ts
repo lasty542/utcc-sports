@@ -1,0 +1,162 @@
+/**
+ * โมดูลบริการเรียก API ด้านการยืนยันตัวตน, จัดการโปรไฟล์, รีเซ็ตรหัสผ่าน และ Microsoft 365
+ */
+import api from './api';
+import type { User } from '../types';
+
+// 1. กำหนด Response และ Payload Types ให้ชัดเจน
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+export interface LoginPayload {
+  studentId: string;
+  password: string;
+  otp?: string;
+}
+
+export interface RegisterPayload {
+  studentId: string;
+  name: string;
+  password: string;
+  email?: string;
+  role?: 'student' | 'admin';
+}
+
+export interface ChangePasswordPayload {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface UpdateProfilePayload {
+  email?: string;
+  phone?: string;
+}
+
+export interface SetupOtpResponse {
+  secret: string;
+  otpauthUrl: string;
+}
+
+export interface ForgotPasswordResponse {
+  emailSent?: boolean;
+  message: string;
+}
+
+export interface MicrosoftStatusResponse {
+  configured: boolean;
+  tenantId: string;
+  redirectUri: string;
+  allowedDomains: string[];
+}
+
+// 2. จัดกลุ่ม Service Object รวมทุกฟังก์ชันของระบบ Authentication
+export const authService = {
+  // เข้าสู่ระบบ (รองรับทั้งแบบส่งก้อน object หรือแยกตัวแปร)
+  async login(studentId: string, password: string, otp?: string): Promise<AuthResponse> {
+    const { data } = await api.post<AuthResponse>('/auth/login', { 
+      studentId: studentId.trim(), 
+      password, 
+      otp 
+    });
+    return data;
+  },
+
+  // สมัครสมาชิก (สำหรับเพิ่มผู้ใช้งาน/เจ้าหน้าที่)
+  async register(payload: RegisterPayload): Promise<AuthResponse> {
+    const { data } = await api.post<AuthResponse>('/auth/register', {
+      studentId: payload.studentId.trim(),
+      name: payload.name.trim(),
+      password: payload.password,
+      email: payload.email?.trim() || undefined,
+      role: payload.role || 'student',
+    });
+    return data;
+  },
+
+  // ดึงข้อมูลผู้ใช้ปัจจุบันจาก Token (สำหรับเช็ก Session ตอนรีเฟรชหน้าเว็บ)
+  async getMe(): Promise<User> {
+    const { data } = await api.get<{ user: User } | User>('/auth/me');
+    return 'user' in data ? data.user : data;
+  },
+
+  // เปลี่ยนรหัสผ่าน (ใช้ในหน้า Settings)
+  async changePassword(payload: ChangePasswordPayload): Promise<{ message: string }> {
+    const { data } = await api.post<{ message: string }>('/auth/change-password', payload);
+    return data;
+  },
+
+  // อัปเดตข้อมูลติดต่อ (อีเมลและเบอร์โทรศัพท์)
+  async updateProfile(payload: UpdateProfilePayload): Promise<{ message: string; user: User }> {
+    const { data } = await api.patch<{ message: string; user: User }>('/auth/profile', payload);
+    return data;
+  },
+
+  // ตั้งค่า 2FA / OTP
+  async setupOtp(): Promise<SetupOtpResponse> {
+    const { data } = await api.post<SetupOtpResponse>('/auth/otp/setup');
+    return data;
+  },
+
+  // ยืนยันการเปิดใช้งาน 2FA / OTP ด้วยรหัส 6 หลัก
+  async verifyOtp(otp: string): Promise<{ otpEnabled: boolean }> {
+    const { data } = await api.post<{ otpEnabled: boolean }>('/auth/otp/verify', { otp });
+    return data;
+  },
+
+  // ปิดใช้งาน 2FA / OTP
+  async disableOtp(): Promise<{ otpEnabled: boolean; message: string }> {
+    const { data } = await api.post<{ otpEnabled: boolean; message: string }>('/auth/otp/disable');
+    return data;
+  },
+
+  // ลืมรหัสผ่าน / ขอส่งลิงก์รีเซ็ต
+  async requestPasswordReset(email: string): Promise<ForgotPasswordResponse> {
+    const { data } = await api.post<ForgotPasswordResponse>('/auth/forgot-password', { email });
+    return data;
+  },
+
+  // ตั้งรหัสผ่านใหม่ด้วย Token จากอีเมล
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    const { data } = await api.post<{ message: string }>('/auth/reset-password', {
+      token,
+      newPassword,
+    });
+    return data;
+  },
+
+  // ตรวจสอบสถานะการเชื่อมต่อ Microsoft Entra ID OAuth
+  async getMicrosoftStatus(): Promise<MicrosoftStatusResponse> {
+    const { data } = await api.get<MicrosoftStatusResponse>('/auth/microsoft/status');
+    return data;
+  },
+
+  // URL สำหรับเริ่มล็อกอินด้วย Microsoft
+  getMicrosoftLoginUrl(): string {
+    const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    return `${base}/auth/microsoft`;
+  },
+
+  // ตรวจสอบสถานะการเชื่อมต่อ Google OAuth
+  async getGoogleStatus(): Promise<{ configured: boolean; redirectUri: string; demoAvailable: boolean }> {
+    const { data } = await api.get<{ configured: boolean; redirectUri: string; demoAvailable: boolean }>('/auth/google/status');
+    return data;
+  },
+
+  // URL สำหรับเริ่มล็อกอินด้วย Google
+  getGoogleLoginUrl(): string {
+    const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+    return `${base}/auth/google`;
+  },
+
+  // ออกจากระบบและล้างสถานะ
+  logout(): void {
+    localStorage.removeItem('auth_user');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  }
+};
+
+// 3. Export เพื่อความยืดหยุ่นสูงสุด (รองรับทั้งแบบมีปีกกาและไม่มีปีกกา)
+export default authService;
