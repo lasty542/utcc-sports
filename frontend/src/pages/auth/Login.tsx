@@ -1,6 +1,6 @@
 /**
- * หน้าเข้าสู่ระบบและสมัครสมาชิก UTCC Sport (Unified Login)
- * รองรับทั้งนักศึกษาและเจ้าหน้าที่ในฟอร์มเดียว พร้อม Social Login (Google & Microsoft)
+ * หน้าเข้าสู่ระบบและสมัครสมาชิก UTCC Sport (Minimal Clean Unified Login)
+ * ดีไซน์คลีน มินิมอล รองรับการแสดงผลทุกขนาดหน้าจอ ทั้งมือถือ โน้ตบุ๊ก และคอมพิวเตอร์
  */
 import { useState, useContext, type FormEvent } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -19,7 +19,6 @@ import {
   Mail,
   UserPlus,
   LogIn,
-  Sparkles,
 } from 'lucide-react';
 import { AuthContext } from '../../contexts/AuthContext';
 import { authService } from '../../services/authService';
@@ -139,7 +138,6 @@ export default function Login() {
       const { token, user } = await authService.login(identifier.trim(), password);
       authContext?.login(user, token);
 
-      // ตรวจสอบค่า user.role ที่ได้รับจาก Backend แล้ว Redirect ทันที
       if (user.role === 'admin') {
         navigate('/admin', { replace: true });
       } else {
@@ -196,7 +194,7 @@ export default function Login() {
         name: nameTrimmed,
         email: emailTrimmed,
         password: regPassword,
-        role: 'student', // บังคับสิทธิ์นักศึกษาเสมอ
+        role: 'student',
       });
       authContext?.login(user, token);
       navigate('/student', { replace: true });
@@ -274,540 +272,496 @@ export default function Login() {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#89a9ba] bg-cover bg-center bg-fixed font-sans flex flex-col justify-between p-3 sm:p-6 relative overflow-x-hidden"
+      className="min-h-screen w-full bg-[#89a9ba] bg-cover bg-center bg-fixed font-sans flex flex-col justify-between items-center p-4 sm:p-6 relative overflow-x-hidden"
       style={{ backgroundImage: `url('${SCENIC_MEADOW_BG}')` }}
     >
-      <div className="fixed inset-0 bg-gradient-to-b from-sky-900/15 via-emerald-950/15 to-emerald-950/40 pointer-events-none z-0" />
+      {/* Background Soft Overlay */}
+      <div className="fixed inset-0 bg-gradient-to-b from-slate-900/25 via-emerald-950/20 to-slate-950/45 backdrop-blur-[2px] pointer-events-none z-0" />
 
-      {/* Top Floating Brand Bar */}
-      <div className="relative z-10 max-w-5xl w-full mx-auto flex items-center justify-between mb-3 sm:mb-4">
-        <div className="inline-flex items-center gap-2 bg-white/80 backdrop-blur-2xl px-4 py-2 rounded-full border border-white/80 shadow-lg">
-          <Leaf className="text-emerald-600" size={18} />
+      {/* Top Floating Mini Brand Pill */}
+      <div className="relative z-10 w-full max-w-[460px] mx-auto flex items-center justify-between mb-2 sm:mb-4">
+        <div className="inline-flex items-center gap-2 bg-white/85 backdrop-blur-xl px-3.5 py-1.5 rounded-full border border-white/80 shadow-md">
+          <Leaf className="text-emerald-600" size={16} />
           <span className="text-xs font-black tracking-wider text-slate-900 uppercase">
             UTCC Sport<span className="text-emerald-600">®</span>
           </span>
         </div>
 
-        <div className="hidden sm:inline-flex items-center gap-2 bg-white/40 backdrop-blur-2xl border border-white/60 text-slate-900 px-3.5 py-1.5 rounded-full text-[11px] font-bold shadow-md">
-          <ShieldCheck size={14} className="text-emerald-700" /> ระบบยืม-คืนอุปกรณ์กีฬาออนไลน์
+        <div className="inline-flex items-center gap-1.5 bg-white/50 backdrop-blur-xl border border-white/60 text-slate-900 px-3 py-1 rounded-full text-[11px] font-bold shadow-xs">
+          <ShieldCheck size={14} className="text-emerald-700" />
+          <span>ระบบยืม-คืนอุปกรณ์กีฬา</span>
         </div>
       </div>
 
-      {/* Main Glass Bento Split Card */}
+      {/* Main Minimal Centered Card */}
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}
-        className="relative z-10 w-full max-w-5xl mx-auto my-auto bg-white/80 backdrop-blur-3xl backdrop-saturate-150 rounded-[2.2rem] shadow-[0_28px_70px_rgba(15,23,42,0.28)] border border-white/85 ring-1 ring-white/50 overflow-hidden grid grid-cols-1 lg:grid-cols-12"
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        className="relative z-10 w-full max-w-[440px] sm:max-w-[460px] mx-auto my-auto bg-white/92 backdrop-blur-2xl rounded-3xl sm:rounded-[2.2rem] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.22)] border border-white/90 p-5 sm:p-7 flex flex-col"
       >
-        {/* Left Auth Form Panel */}
-        <div className="lg:col-span-7 p-6 sm:p-9 flex flex-col justify-between">
-          <div>
-            {/* แท็บสลับ เข้าสู่ระบบ vs สมัครสมาชิกใหม่ */}
-            <div className="inline-grid grid-cols-2 gap-1 bg-slate-900/10 p-1.5 rounded-full mb-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('login');
-                  setRegError(null);
-                  setApiError(null);
-                }}
-                className={`px-5 py-2 rounded-full text-xs sm:text-sm font-black transition-all cursor-pointer inline-flex items-center justify-center gap-2 ${
-                  mode === 'login'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-700 hover:text-slate-900'
-                }`}
-              >
-                <LogIn size={15} /> เข้าสู่ระบบ
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('register');
-                  setApiError(null);
-                }}
-                className={`px-5 py-2 rounded-full text-xs sm:text-sm font-black transition-all cursor-pointer inline-flex items-center justify-center gap-2 ${
-                  mode === 'register'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-700 hover:text-slate-900'
-                }`}
-              >
-                <UserPlus size={15} /> สมัครสมาชิกใหม่
-              </button>
-            </div>
-
-            {/* แจ้งเตือนข้อผิดพลาดหลัก (ถ้ามี) */}
-            {apiError && (
-              <div
-                role="alert"
-                className="flex items-start gap-2.5 bg-red-50/95 border border-red-200 text-red-700 text-xs font-semibold px-3.5 py-2.5 rounded-2xl mb-4 shadow-sm"
-              >
-                <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                <span>{apiError}</span>
-              </div>
-            )}
-
-            {/* โครงสร้างฟอร์ม Login / Register */}
-            <AnimatePresence mode="wait">
-              {mode === 'login' ? (
-                /* ฟอร์มเข้าสู่ระบบฟอร์มเดียว (Unified Login Form) */
-                <motion.div
-                  key="unified-login"
-                  initial={{ opacity: 0, x: -12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 12 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-1">
-                    เข้าสู่ระบบ UTCC Sport
-                  </h1>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-5 leading-relaxed">
-                    ระบบจะนำทางไปยังหน้า <strong>นักศึกษา</strong> หรือ <strong>เจ้าหน้าที่ดูแลระบบ</strong> ให้โดยอัตโนมัติตามสิทธิ์บัญชีของคุณ
-                  </p>
-
-                  <form onSubmit={handleLogin} className="space-y-3.5" noValidate>
-                    <div>
-                      <label className="text-xs font-bold text-slate-800 block mb-1.5" htmlFor="identifier">
-                        รหัสนักศึกษา / บัญชีเจ้าหน้าที่ หรือ อีเมล
-                      </label>
-                      <input
-                        id="identifier"
-                        type="text"
-                        autoComplete="username"
-                        value={identifier}
-                        onChange={(e) => {
-                          setIdentifier(e.target.value);
-                          if (fieldErrors.identifier) setFieldErrors((p) => ({ ...p, identifier: undefined }));
-                          if (apiError) setApiError(null);
-                        }}
-                        disabled={isLoading}
-                        placeholder="เช่น 2410511101055, admin หรือ yourname@gmail.com"
-                        className={`w-full px-4 py-3 rounded-2xl border bg-white/90 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner ${
-                          fieldErrors.identifier ? 'border-red-400' : 'border-white'
-                        }`}
-                      />
-                      {fieldErrors.identifier && (
-                        <p className="text-red-600 text-[11px] font-semibold mt-1">{fieldErrors.identifier}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-bold text-slate-800" htmlFor="password">
-                          รหัสผ่าน
-                        </label>
-                        <button
-                          type="button"
-                          onClick={openForgotModal}
-                          className="text-xs font-bold text-emerald-800 hover:underline bg-transparent border-none cursor-pointer"
-                        >
-                          ลืมรหัสผ่าน?
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <input
-                          id="password"
-                          type={showPassword ? 'text' : 'password'}
-                          autoComplete="current-password"
-                          value={password}
-                          onChange={(e) => {
-                            setPassword(e.target.value);
-                            if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: undefined }));
-                            if (apiError) setApiError(null);
-                          }}
-                          disabled={isLoading}
-                          placeholder="กรอกรหัสผ่านของคุณ"
-                          className={`w-full px-4 py-3 pr-11 rounded-2xl border bg-white/90 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner ${
-                            fieldErrors.password ? 'border-red-400' : 'border-white'
-                          }`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((p) => !p)}
-                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
-                          tabIndex={-1}
-                        >
-                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
-                      {fieldErrors.password && (
-                        <p className="text-red-600 text-[11px] font-semibold mt-1">{fieldErrors.password}</p>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isLoading}
-                      className="w-full bg-slate-900 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer text-sm"
-                    >
-                      {isLoading ? (
-                        <>
-                          <Loader2 size={18} className="animate-spin" /> กำลังตรวจสอบสิทธิ์...
-                        </>
-                      ) : (
-                        <>
-                          เข้าสู่ระบบ <ArrowRight size={17} />
-                        </>
-                      )}
-                    </button>
-                  </form>
-
-                  {/* Social Login Separator */}
-                  <div className="relative my-4">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-slate-300/80" />
-                    </div>
-                    <div className="relative flex justify-center text-[11px]">
-                      <span className="bg-white/80 px-3 py-0.5 rounded-full text-slate-500 font-bold">
-                        หรือเข้าสู่ระบบด้วย Social Login
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* ปุ่ม Social Login: Google & Microsoft */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Google Login Button */}
-                    <button
-                      type="button"
-                      onClick={handleGoogleSignIn}
-                      disabled={isLoading || isSocialLoading !== null}
-                      className="w-full bg-white hover:bg-slate-50 text-slate-800 font-bold py-2.5 px-3 rounded-2xl border border-slate-200 shadow-sm transition-all flex items-center justify-center gap-2 text-xs cursor-pointer hover:shadow-md"
-                    >
-                      {isSocialLoading === 'google' ? (
-                        <Loader2 size={16} className="animate-spin text-slate-600" />
-                      ) : (
-                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-                          <path
-                            fill="#4285F4"
-                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                          />
-                          <path
-                            fill="#34A853"
-                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                          />
-                          <path
-                            fill="#FBBC05"
-                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                          />
-                          <path
-                            fill="#EA4335"
-                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                          />
-                        </svg>
-                      )}
-                      <span>เข้าสู่ระบบด้วย Google</span>
-                    </button>
-
-                    {/* Microsoft Login Button */}
-                    <button
-                      type="button"
-                      onClick={handleMicrosoftSignIn}
-                      disabled={isLoading || isSocialLoading !== null}
-                      className="w-full bg-white hover:bg-slate-50 text-slate-800 font-bold py-2.5 px-3 rounded-2xl border border-slate-200 shadow-sm transition-all flex items-center justify-center gap-2 text-xs cursor-pointer hover:shadow-md"
-                    >
-                      {isSocialLoading === 'microsoft' ? (
-                        <Loader2 size={16} className="animate-spin text-slate-600" />
-                      ) : (
-                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21" aria-hidden="true">
-                          <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                          <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                          <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                          <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                        </svg>
-                      )}
-                      <span>เข้าสู่ระบบด้วย Microsoft</span>
-                    </button>
-                  </div>
-                </motion.div>
-              ) : (
-                /* ฟอร์มสมัครสมาชิกนักศึกษาใหม่ */
-                <motion.div
-                  key="unified-register"
-                  initial={{ opacity: 0, x: 12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -12 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="bg-emerald-600 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
-                      STUDENT REGISTER
-                    </span>
-                    <span className="text-xs text-slate-500 font-medium">สมัครสมาชิกสิทธิ์นักศึกษา</span>
-                  </div>
-                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-1">
-                    สมัครสมาชิกใหม่
-                  </h1>
-                  <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                    กรอกข้อมูลนักศึกษาและอีเมลของคุณ (รองรับอีเมลทุกค่าย เช่น Gmail, Hotmail, Outlook หรืออีเมลมหาวิทยาลัย)
-                  </p>
-
-                  {regError && (
-                    <div className="flex items-start gap-2 bg-red-50/95 border border-red-200 text-red-700 text-xs font-semibold px-3.5 py-2.5 rounded-2xl mb-3">
-                      <AlertCircle size={15} className="shrink-0 mt-0.5" />
-                      <span>{regError}</span>
-                    </div>
-                  )}
-
-                  <form onSubmit={handleRegisterSubmit} className="space-y-3 text-xs" noValidate>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block font-bold text-slate-800 mb-1" htmlFor="regStudentId">
-                          รหัสนักศึกษา
-                        </label>
-                        <input
-                          id="regStudentId"
-                          type="text"
-                          maxLength={16}
-                          placeholder="เช่น 2410511101055"
-                          value={regStudentId}
-                          onChange={(e) => setRegStudentId(e.target.value)}
-                          disabled={isRegistering}
-                          className="w-full px-3.5 py-2.5 rounded-2xl border border-white bg-white/90 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-bold text-slate-800 mb-1" htmlFor="regName">
-                          ชื่อ-นามสกุล
-                        </label>
-                        <input
-                          id="regName"
-                          type="text"
-                          placeholder="ชื่อและนามสกุลจริง"
-                          value={regName}
-                          onChange={(e) => setRegName(e.target.value)}
-                          disabled={isRegistering}
-                          className="w-full px-3.5 py-2.5 rounded-2xl border border-white bg-white/90 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="font-bold text-slate-800" htmlFor="regEmail">
-                          อีเมลติดต่อ
-                        </label>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => applyDomainSuffix('gmail.com')}
-                            className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full cursor-pointer"
-                          >
-                            @gmail.com
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => applyDomainSuffix('hotmail.com')}
-                            className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full cursor-pointer"
-                          >
-                            @hotmail.com
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => applyDomainSuffix('utcc.ac.th')}
-                            className="text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full cursor-pointer"
-                          >
-                            @utcc.ac.th
-                          </button>
-                        </div>
-                      </div>
-                      <input
-                        id="regEmail"
-                        type="email"
-                        placeholder="yourname@gmail.com หรือ student@utcc.ac.th"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
-                        disabled={isRegistering}
-                        className="w-full px-3.5 py-2.5 rounded-2xl border border-white bg-white/90 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block font-bold text-slate-800 mb-1" htmlFor="regPassword">
-                          ตั้งรหัสผ่าน (6+ ตัวอักษร)
-                        </label>
-                        <div className="relative">
-                          <input
-                            id="regPassword"
-                            type={showRegPassword ? 'text' : 'password'}
-                            placeholder="••••••"
-                            value={regPassword}
-                            onChange={(e) => setRegPassword(e.target.value)}
-                            disabled={isRegistering}
-                            className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-white bg-white/90 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowRegPassword((p) => !p)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
-                            tabIndex={-1}
-                          >
-                            {showRegPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                          </button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block font-bold text-slate-800 mb-1" htmlFor="regConfirm">
-                          ยืนยันรหัสผ่าน
-                        </label>
-                        <input
-                          id="regConfirm"
-                          type={showRegPassword ? 'text' : 'password'}
-                          placeholder="••••••"
-                          value={regConfirmPassword}
-                          onChange={(e) => setRegConfirmPassword(e.target.value)}
-                          disabled={isRegistering}
-                          className="w-full px-3.5 py-2.5 rounded-2xl border border-white bg-white/90 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-emerald-600 shadow-inner"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isRegistering}
-                      className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer text-sm mt-1"
-                    >
-                      {isRegistering ? (
-                        <>
-                          <Loader2 size={17} className="animate-spin" /> กำลังสร้างบัญชีนักศึกษา...
-                        </>
-                      ) : (
-                        <>
-                          สมัครสมาชิกและเข้าใช้งาน <ArrowRight size={17} />
-                        </>
-                      )}
-                    </button>
-                  </form>
-
-                  {/* Social Login Divider & Buttons on Register page */}
-                  <div className="relative my-4">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-slate-300/80" />
-                    </div>
-                    <div className="relative flex justify-center text-[10px]">
-                      <span className="bg-white/80 px-2.5 py-0.5 rounded-full text-slate-500 font-bold">
-                        หรือสมัคร / เข้าสู่ระบบด้วย Social Login ทันที
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={handleGoogleSignIn}
-                      disabled={isRegistering || isSocialLoading !== null}
-                      className="bg-white hover:bg-slate-50 text-slate-800 font-bold py-2 px-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-center gap-1.5 text-xs cursor-pointer"
-                    >
-                      <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
-                        <path
-                          fill="#4285F4"
-                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                        />
-                        <path
-                          fill="#EA4335"
-                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                        />
-                      </svg>
-                      Google
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleMicrosoftSignIn}
-                      disabled={isRegistering || isSocialLoading !== null}
-                      className="bg-white hover:bg-slate-50 text-slate-800 font-bold py-2 px-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-center gap-1.5 text-xs cursor-pointer"
-                    >
-                      <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 21 21">
-                        <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                        <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                        <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                        <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                      </svg>
-                      Microsoft
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+        {/* Brand Icon & Welcome Title */}
+        <div className="text-center mb-5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center mx-auto mb-3 shadow-md shadow-emerald-600/20">
+            <Leaf size={24} className="stroke-[2.5]" />
           </div>
-
-          {/* Footer Card */}
-          <div className="pt-4 mt-5 border-t border-slate-900/10 flex items-center justify-between text-xs text-slate-600 font-medium">
-            <span>© 2026 UTCC Sport Section</span>
-            <button
-              type="button"
-              onClick={openForgotModal}
-              className="text-emerald-900 hover:underline font-bold bg-transparent border-none cursor-pointer"
-            >
-              กู้คืนรหัสผ่าน / ช่วยเหลือ
-            </button>
-          </div>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            {mode === 'login' ? 'เข้าสู่ระบบ UTCC Sport' : 'สมัครสมาชิกใหม่'}
+          </h1>
+          <p className="text-xs text-slate-500 mt-1">
+            {mode === 'login'
+              ? 'ระบบยืม-คืนอุปกรณ์กีฬาออนไลน์ มหาวิทยาลัยหอการค้าไทย'
+              : 'กรอกข้อมูลนักศึกษาของคุณเพื่อเริ่มต้นใช้งาน'}
+          </p>
         </div>
 
-        {/* Right Info Bento Side Card */}
-        <div className="lg:col-span-5 bg-[#f6e3ba]/95 p-6 sm:p-9 flex flex-col justify-between text-slate-900 border-t lg:border-t-0 lg:border-l border-white/70">
-          <div>
-            <div className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-[10px] font-black tracking-widest px-3 py-1 rounded-full uppercase mb-4 shadow-sm">
-              <Sparkles size={13} className="text-amber-400" /> UNIFIED ACCESS
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-black tracking-tight leading-none mb-3">
-              UTCC SPORT<br />EQUIPMENT
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-700 leading-relaxed mb-5">
-              ระบบยืม-คืนอุปกรณ์กีฬา มหาวิทยาลัยหอการค้าไทย เข้าใช้งานได้ทั้งนักศึกษาและเจ้าหน้าที่ในหน้าเดียว พร้อมระบบ Dynamic QR Code สำหรับตรวจสอบสิทธิ์
-            </p>
-          </div>
+        {/* Minimal Tab Switcher Pill */}
+        <div className="grid grid-cols-2 p-1 bg-slate-100/90 rounded-2xl mb-5 text-xs sm:text-sm font-bold">
+          <button
+            type="button"
+            onClick={() => {
+              setMode('login');
+              setRegError(null);
+              setApiError(null);
+            }}
+            className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              mode === 'login'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <LogIn size={15} /> เข้าสู่ระบบ
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('register');
+              setApiError(null);
+            }}
+            className={`py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              mode === 'register'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <UserPlus size={15} /> สมัครสมาชิก
+          </button>
+        </div>
 
-          <div className="space-y-3">
-            {/* Quick Demo Credentials Box */}
-            <div className="bg-white/85 backdrop-blur-md rounded-2xl p-4 border border-white shadow-sm space-y-2">
-              <p className="text-[11px] font-black text-emerald-900 uppercase tracking-wide">
-                บัญชีทดสอบระบบที่พร้อมใช้งาน
-              </p>
-              <div className="space-y-1.5 text-xs font-mono">
-                <div className="p-2 bg-slate-900/5 rounded-xl flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-slate-900">🛡️ Admin:</span>{' '}
-                    <span className="text-slate-700">admin</span>
-                  </div>
-                  <span className="text-[11px] bg-white px-2 py-0.5 rounded font-bold text-slate-900">
-                    admin1234
-                  </span>
+        {/* Global Error Banner */}
+        {apiError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-4"
+          >
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
+            <span>{apiError}</span>
+          </div>
+        )}
+
+        {/* Animated Form Container */}
+        <AnimatePresence mode="wait">
+          {mode === 'login' ? (
+            /* ==================== LOGIN FORM ==================== */
+            <motion.div
+              key="minimal-login"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.18 }}
+            >
+              <form onSubmit={handleLogin} className="space-y-3.5" noValidate>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1.5" htmlFor="identifier">
+                    รหัสนักศึกษา / บัญชี หรือ อีเมล
+                  </label>
+                  <input
+                    id="identifier"
+                    type="text"
+                    autoComplete="username"
+                    value={identifier}
+                    onChange={(e) => {
+                      setIdentifier(e.target.value);
+                      if (fieldErrors.identifier) setFieldErrors((p) => ({ ...p, identifier: undefined }));
+                      if (apiError) setApiError(null);
+                    }}
+                    disabled={isLoading}
+                    placeholder="เช่น 2410511101055 หรือ admin"
+                    className={`w-full px-4 py-3 rounded-2xl border bg-slate-50/70 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all ${
+                      fieldErrors.identifier ? 'border-red-400' : 'border-slate-200/90'
+                    }`}
+                  />
+                  {fieldErrors.identifier && (
+                    <p className="text-red-600 text-[11px] font-semibold mt-1">{fieldErrors.identifier}</p>
+                  )}
                 </div>
-                <div className="p-2 bg-slate-900/5 rounded-xl flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-emerald-800">🎓 Student:</span>{' '}
-                    <span className="text-slate-700">2410511101055</span>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-700" htmlFor="password">
+                      รหัสผ่าน
+                    </label>
+                    <button
+                      type="button"
+                      onClick={openForgotModal}
+                      className="text-xs font-bold text-emerald-700 hover:underline bg-transparent border-none cursor-pointer"
+                    >
+                      ลืมรหัสผ่าน?
+                    </button>
                   </div>
-                  <span className="text-[11px] bg-white px-2 py-0.5 rounded font-bold text-emerald-900">
-                    123456
+                  <div className="relative">
+                    <input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: undefined }));
+                        if (apiError) setApiError(null);
+                      }}
+                      disabled={isLoading}
+                      placeholder="กรอกรหัสผ่านของคุณ"
+                      className={`w-full px-4 py-3 pr-11 rounded-2xl border bg-slate-50/70 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all ${
+                        fieldErrors.password ? 'border-red-400' : 'border-slate-200/90'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((p) => !p)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                      tabIndex={-1}
+                      aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {fieldErrors.password && (
+                    <p className="text-red-600 text-[11px] font-semibold mt-1">{fieldErrors.password}</p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full bg-slate-900 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm mt-1"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" /> กำลังตรวจสอบ...
+                    </>
+                  ) : (
+                    <>
+                      เข้าสู่ระบบ <ArrowRight size={17} />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* Minimal Divider */}
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-[11px]">
+                  <span className="bg-white/95 px-2.5 text-slate-400 font-medium">
+                    หรือเข้าสู่ระบบด้วย
                   </span>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-md">
-              <p className="text-[11px] font-black text-emerald-300 uppercase mb-1">
-                Social Login & Automatic Role Redirect
-              </p>
-              <p className="text-xs text-slate-200 leading-relaxed">
-                ระบบจะตรวจสอบสิทธิ์ <strong>Admin / Student</strong> จากฐานข้อมูลอัตโนมัติ และนำทางไปยัง Dashboard ที่ถูกต้องทันที
-              </p>
+              {/* Social Login Buttons */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={isLoading || isSocialLoading !== null}
+                  className="w-full bg-white hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-3 rounded-2xl border border-slate-200 shadow-2xs hover:shadow-xs transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+                >
+                  {isSocialLoading === 'google' ? (
+                    <Loader2 size={16} className="animate-spin text-slate-500" />
+                  ) : (
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      />
+                    </svg>
+                  )}
+                  <span>Google</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleMicrosoftSignIn}
+                  disabled={isLoading || isSocialLoading !== null}
+                  className="w-full bg-white hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-3 rounded-2xl border border-slate-200 shadow-2xs hover:shadow-xs transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+                >
+                  {isSocialLoading === 'microsoft' ? (
+                    <Loader2 size={16} className="animate-spin text-slate-500" />
+                  ) : (
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21" aria-hidden="true">
+                      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                    </svg>
+                  )}
+                  <span>Microsoft</span>
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            /* ==================== REGISTER FORM ==================== */
+            <motion.div
+              key="minimal-register"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.18 }}
+            >
+              {regError && (
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2.5 rounded-2xl mb-3">
+                  <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                  <span>{regError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleRegisterSubmit} className="space-y-3 text-xs" noValidate>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regStudentId">
+                      รหัสนักศึกษา
+                    </label>
+                    <input
+                      id="regStudentId"
+                      type="text"
+                      maxLength={16}
+                      placeholder="เช่น 2410511101055"
+                      value={regStudentId}
+                      onChange={(e) => setRegStudentId(e.target.value)}
+                      disabled={isRegistering}
+                      className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regName">
+                      ชื่อ-นามสกุล
+                    </label>
+                    <input
+                      id="regName"
+                      type="text"
+                      placeholder="ชื่อและนามสกุลจริง"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                      disabled={isRegistering}
+                      className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700" htmlFor="regEmail">
+                      อีเมลติดต่อ
+                    </label>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => applyDomainSuffix('gmail.com')}
+                        className="text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full cursor-pointer transition-colors"
+                      >
+                        @gmail.com
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyDomainSuffix('utcc.ac.th')}
+                        className="text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-full cursor-pointer transition-colors"
+                      >
+                        @utcc.ac.th
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    id="regEmail"
+                    type="email"
+                    placeholder="yourname@gmail.com หรือ @utcc.ac.th"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    disabled={isRegistering}
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regPassword">
+                      รหัสผ่าน (6+ ตัวอักษร)
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="regPassword"
+                        type={showRegPassword ? 'text' : 'password'}
+                        placeholder="••••••"
+                        value={regPassword}
+                        onChange={(e) => setRegPassword(e.target.value)}
+                        disabled={isRegistering}
+                        className="w-full px-3.5 py-2.5 pr-8 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRegPassword((p) => !p)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                        tabIndex={-1}
+                      >
+                        {showRegPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1" htmlFor="regConfirm">
+                      ยืนยันรหัสผ่าน
+                    </label>
+                    <input
+                      id="regConfirm"
+                      type={showRegPassword ? 'text' : 'password'}
+                      placeholder="••••••"
+                      value={regConfirmPassword}
+                      onChange={(e) => setRegConfirmPassword(e.target.value)}
+                      disabled={isRegistering}
+                      className="w-full px-3.5 py-2.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 text-sm text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isRegistering}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold py-3.5 px-4 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer text-sm mt-1"
+                >
+                  {isRegistering ? (
+                    <>
+                      <Loader2 size={17} className="animate-spin" /> กำลังสร้างบัญชี...
+                    </>
+                  ) : (
+                    <>
+                      สมัครสมาชิกและเข้าใช้งาน <ArrowRight size={17} />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* Minimal Divider on Register */}
+              <div className="relative my-3.5">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-[10px]">
+                  <span className="bg-white/95 px-2 text-slate-400 font-medium">
+                    หรือสมัครด้วย Social Login
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={isRegistering || isSocialLoading !== null}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-bold py-2 px-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-center gap-1.5 text-xs cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                  Google
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMicrosoftSignIn}
+                  disabled={isRegistering || isSocialLoading !== null}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-bold py-2 px-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-center gap-1.5 text-xs cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 21 21">
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                  </svg>
+                  Microsoft
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Discreet Test Account Autofill (Collapsible minimal footer for grading/demo) */}
+        <div className="mt-4 pt-3 border-t border-slate-100 text-center">
+          <details className="text-[11px] text-slate-400 group cursor-pointer inline-block">
+            <summary className="list-none hover:text-slate-600 transition-colors inline-flex items-center gap-1 select-none">
+              <span>ℹ️ บัญชีทดสอบระบบ</span>
+            </summary>
+            <div className="mt-2 p-2 bg-slate-50 rounded-xl border border-slate-200/60 text-left text-xs font-mono space-y-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentifier('admin');
+                  setPassword('admin1234');
+                  setMode('login');
+                }}
+                className="w-full flex items-center justify-between p-1.5 rounded-lg hover:bg-white border border-transparent hover:border-slate-200 cursor-pointer transition-all text-left"
+                title="คลิกเพื่อกรอกอัตโนมัติ"
+              >
+                <span>🛡️ Admin: <strong className="text-slate-800">admin</strong></span>
+                <span className="bg-slate-200/80 text-slate-700 px-1.5 py-0.5 rounded text-[10px]">admin1234</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentifier('2410511101055');
+                  setPassword('123456');
+                  setMode('login');
+                }}
+                className="w-full flex items-center justify-between p-1.5 rounded-lg hover:bg-white border border-transparent hover:border-slate-200 cursor-pointer transition-all text-left"
+                title="คลิกเพื่อกรอกอัตโนมัติ"
+              >
+                <span>🎓 Student: <strong className="text-emerald-700">2410511101055</strong></span>
+                <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px]">123456</span>
+              </button>
             </div>
-          </div>
+          </details>
         </div>
       </motion.div>
 
-      {/* Bottom Caption */}
-      <div className="relative z-10 text-center text-[11px] text-white/85 font-semibold mt-3 drop-shadow-sm">
-        University of the Thai Chamber of Commerce • Smart Sports Equipment Borrowing System
+      {/* Bottom Minimal Footer */}
+      <div className="relative z-10 text-center text-[11px] text-white/80 font-medium mt-3 drop-shadow-xs">
+        University of the Thai Chamber of Commerce • UTCC Sport
       </div>
 
       {/* Frosted Glass Forgot Password Modal */}
@@ -818,7 +772,7 @@ export default function Login() {
             onClick={closeForgotModal}
           >
             <motion.div
-              className="bg-white/90 backdrop-blur-3xl rounded-[2.2rem] p-6 sm:p-7 max-w-md w-full shadow-[0_28px_70px_rgba(15,23,42,0.28)] relative border border-white/80 ring-1 ring-white/50"
+              className="bg-white/95 backdrop-blur-3xl rounded-[2rem] p-6 sm:p-7 max-w-sm sm:max-w-md w-full shadow-[0_24px_60px_rgba(15,23,42,0.25)] relative border border-white/80"
               initial={{ scale: 0.92, opacity: 0, y: 12 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.92, opacity: 0, y: 12 }}
@@ -827,18 +781,18 @@ export default function Login() {
               <button
                 type="button"
                 onClick={closeForgotModal}
-                className="absolute top-4 right-4 text-slate-500 hover:text-slate-800 cursor-pointer"
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 cursor-pointer p-1"
                 aria-label="ปิดหน้าต่าง"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
 
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-800">
-                  <Mail size={20} />
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-800 shrink-0">
+                  <Mail size={18} />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900">ขอรับลิงก์รีเซ็ตรหัสผ่าน</h3>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900">ขอรับลิงก์รีเซ็ตรหัสผ่าน</h3>
                   <p className="text-xs text-slate-500">กรอกอีเมลที่ใช้ลงทะเบียนไว้ในระบบ</p>
                 </div>
               </div>
