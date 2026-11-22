@@ -1,7 +1,7 @@
 /**
  * โมดูลบริการเรียก API ด้านการยืนยันตัวตน, จัดการโปรไฟล์, รีเซ็ตรหัสผ่าน และ Microsoft 365
  */
-import api from './api';
+import api, { getApiBaseUrl } from './api';
 import type { User } from '../types';
 
 // 1. กำหนด Response และ Payload Types ให้ชัดเจน
@@ -134,8 +134,7 @@ export const authService = {
 
   // URL สำหรับเริ่มล็อกอินด้วย Microsoft
   getMicrosoftLoginUrl(): string {
-    const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
-    return `${base}/auth/microsoft`;
+    return `${getApiBaseUrl()}/auth/microsoft`;
   },
 
   // ตรวจสอบสถานะการเชื่อมต่อ Google OAuth
@@ -146,8 +145,7 @@ export const authService = {
 
   // URL สำหรับเริ่มล็อกอินด้วย Google
   getGoogleLoginUrl(): string {
-    const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
-    return `${base}/auth/google`;
+    return `${getApiBaseUrl()}/auth/google`;
   },
 
   // ออกจากระบบและล้างสถานะ
