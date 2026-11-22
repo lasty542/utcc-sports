@@ -133,7 +133,7 @@ export default function EquipmentCard({ item, index, onSelect }: EquipmentCardPr
             'อุปกรณ์หมด'
           ) : (
             <>
-              ขอยืมอุปกรณ์นี้ + <ArrowUpRight size={13} />
+              ขอยืมอุปกรณ์นี้ <ArrowUpRight size={13} />
             </>
           )}
         </button>
