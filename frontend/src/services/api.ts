@@ -21,10 +21,10 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Interceptor: ดึง Token จาก localStorage แล้วใส่ใน Header อัตโนมัติ
+// Interceptor: ดึง Token จาก sessionStorage (หรือ fallback localStorage) แล้วใส่ใน Header อัตโนมัติ
 api.interceptors.request.use((config) => {
   try {
-    const raw = localStorage.getItem('auth_user');
+    const raw = sessionStorage.getItem('auth_user') || localStorage.getItem('auth_user');
     if (raw) {
       const parsed = JSON.parse(raw);
       const token: string | undefined = parsed?.token;
@@ -43,6 +43,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      sessionStorage.removeItem('auth_user');
       localStorage.removeItem('auth_user');
       // ไม่ redirect อัตโนมัติที่นี่ — ให้ AuthContext จัดการ
     }

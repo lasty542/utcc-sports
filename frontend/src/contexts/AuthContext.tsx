@@ -1,5 +1,5 @@
 /**
- * React Context สำหรับจัดการสถานะการเข้าสู่ระบบ, Token ใน localStorage และการตรวจสอบ Session อัตโนมัติ
+ * React Context สำหรับจัดการสถานะการเข้าสู่ระบบ, Token ใน sessionStorage และการตรวจสอบ Session อัตโนมัติ (แยกแท็บอิสระ)
  */
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useState, useEffect, type ReactNode, useContext, useCallback } from 'react';
@@ -16,12 +16,17 @@ interface AuthContextType {
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
-// อ่านข้อมูลผู้ใช้และ JWT Token ที่บันทึกไว้ใน localStorage
+// อ่านข้อมูลผู้ใช้และ JWT Token ที่บันทึกไว้ใน sessionStorage (แยกแท็บอิสระ ไม่ทับกันระหว่างแท็บ)
 function loadStoredAuth(): { user: User | null; token: string | null } {
   try {
-    const raw = localStorage.getItem('auth_user');
+    const raw = sessionStorage.getItem('auth_user') || localStorage.getItem('auth_user');
     if (raw) {
       const parsed = JSON.parse(raw);
+      // หากพบข้อมูลเก่าใน localStorage ให้คัดลอกมาลง sessionStorage แล้วเคลียร์ของเดิม
+      if (!sessionStorage.getItem('auth_user')) {
+        sessionStorage.setItem('auth_user', raw);
+        localStorage.removeItem('auth_user');
+      }
       return { user: parsed.user ?? null, token: parsed.token ?? null };
     }
   } catch { /* ignore */ }
@@ -34,18 +39,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(() => loadStoredAuth().token);
   const [loading, setLoading] = useState(() => Boolean(loadStoredAuth().token));
 
-  // บันทึกข้อมูลผู้ใช้และ Token ลง State และ localStorage เมื่อเข้าสู่ระบบสำเร็จ
+  // บันทึกข้อมูลผู้ใช้และ Token ลง State และ sessionStorage เมื่อเข้าสู่ระบบสำเร็จ
   const login = useCallback((userData: User, newToken?: string) => {
     setUser(userData);
     const t = newToken ?? token;
     if (newToken) setToken(newToken);
-    localStorage.setItem('auth_user', JSON.stringify({ user: userData, token: t }));
+    sessionStorage.setItem('auth_user', JSON.stringify({ user: userData, token: t }));
+    localStorage.removeItem('auth_user');
   }, [token]);
 
   // ล้างข้อมูลผู้ใช้และ Token ออกจากระบบเมื่อออกจากระบบ
   const logout = useCallback(() => {
     setUser(null);
     setToken(null);
+    sessionStorage.removeItem('auth_user');
     localStorage.removeItem('auth_user');
   }, []);
 
@@ -62,7 +69,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .then((freshUser) => {
         if (isMounted) {
           setUser(freshUser);
-          localStorage.setItem('auth_user', JSON.stringify({ user: freshUser, token: stored.token }));
+          sessionStorage.setItem('auth_user', JSON.stringify({ user: freshUser, token: stored.token }));
         }
       })
       .catch(() => {

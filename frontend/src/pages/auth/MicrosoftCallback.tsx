@@ -20,7 +20,8 @@ export default function MicrosoftCallback() {
   useEffect(() => {
     if (!token) return;
 
-    localStorage.setItem('auth_user', JSON.stringify({ user: null, token }));
+    sessionStorage.setItem('auth_user', JSON.stringify({ user: null, token }));
+    localStorage.removeItem('auth_user');
 
     let active = true;
     authService

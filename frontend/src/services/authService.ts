@@ -172,8 +172,11 @@ export const authService = {
     return `${getApiBaseUrl()}/auth/google${qs}`;
   },
 
-  // ออกจากระบบและล้างสถานะ
+  // ออกจากระบบและล้างสถานะใน sessionStorage และ localStorage
   logout(): void {
+    sessionStorage.removeItem('auth_user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
     localStorage.removeItem('auth_user');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
