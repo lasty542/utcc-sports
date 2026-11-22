@@ -162,7 +162,7 @@ async function refreshEquipmentStatus(client: { query: typeof pool.query }, equi
   await client.query(
     `UPDATE equipment
      SET status = CASE
-       WHEN available_qty = total_qty THEN 'พร้อมใช้งาน'
+       WHEN COALESCE(available_qty, 0) >= COALESCE(total_qty, 0) THEN 'พร้อมใช้งาน'
        ELSE 'ใช้งานอยู่'
      END
      WHERE id = $1`,
@@ -562,7 +562,7 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
        FROM borrows b
        JOIN users u ON u.id = b.user_id
        WHERE b.id = $1
-       FOR UPDATE`,
+       FOR UPDATE OF b`,
       [id]
     );
     const borrow = existing.rows[0];
@@ -593,47 +593,61 @@ export async function returnBorrow(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // 1. อัปเดตสถานะในตาราง borrows เป็น returned
-    await client.query(`UPDATE borrows SET status = 'returned' WHERE id = $1`, [borrow.id]);
+    // 1. อัปเดตสถานะในตาราง borrows เป็น returned และบันทึกวันที่คืนจริง
+    await client.query(
+      `UPDATE borrows
+       SET status = 'returned',
+           return_date = COALESCE(return_date, CURRENT_DATE)
+       WHERE id = $1`,
+      [borrow.id]
+    );
 
     // 2. ปลดล็อกรหัสประจำชิ้นใน equipment_items คืนเป็น available
-    const itemCodes = Array.isArray(borrow.item_codes) ? borrow.item_codes : [];
-    await client.query(
-      `UPDATE equipment_items
-       SET status = 'available', borrow_id = NULL
-       WHERE (borrow_id = $1 OR item_code = ANY($2::text[]))
-         AND status != 'damaged'`,
-      [borrow.id, itemCodes]
-    );
+    const itemCodes = Array.isArray(borrow.item_codes)
+      ? borrow.item_codes.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+      : [];
+
+    if (itemCodes.length > 0) {
+      await client.query(
+        `UPDATE equipment_items
+         SET status = 'available', borrow_id = NULL
+         WHERE (borrow_id = $1 OR item_code = ANY($2::text[]))
+           AND status != 'damaged'`,
+        [borrow.id, itemCodes]
+      );
+    } else {
+      await client.query(
+        `UPDATE equipment_items
+         SET status = 'available', borrow_id = NULL
+         WHERE borrow_id = $1 AND status != 'damaged'`,
+        [borrow.id]
+      );
+    }
 
     // 3. คืนยอด available_qty ให้ equipment
     await client.query(
       `UPDATE equipment
-       SET available_qty = LEAST(total_qty, available_qty + $1)
+       SET available_qty = LEAST(COALESCE(total_qty, available_qty + $1), available_qty + $1)
        WHERE id = $2`,
       [borrow.quantity, borrow.equipment_id]
     );
 
     // 4. ซิงค์ available_qty จาก equipment_items หากมีชิ้นระบุไว้
-    try {
-      const itemsCount = await client.query<{ count: number }>(
-        `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,
+    const itemsCount = await client.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,
+      [borrow.equipment_id]
+    );
+    if ((itemsCount.rows[0]?.count ?? 0) > 0) {
+      await client.query(
+        `UPDATE equipment
+         SET available_qty = (
+           SELECT COUNT(*)::int
+           FROM equipment_items
+           WHERE equipment_id = $1 AND status = 'available'
+         )
+         WHERE id = $1`,
         [borrow.equipment_id]
       );
-      if ((itemsCount.rows[0]?.count ?? 0) > 0) {
-        await client.query(
-          `UPDATE equipment
-           SET available_qty = (
-             SELECT COUNT(*)::int
-             FROM equipment_items
-             WHERE equipment_id = $1 AND status = 'available'
-           )
-           WHERE id = $1`,
-          [borrow.equipment_id]
-        );
-      }
-    } catch {
-      // ignore
     }
 
     await refreshEquipmentStatus(client, borrow.equipment_id);
@@ -840,8 +854,9 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         equipment_id: number;
         quantity: number;
         status: BorrowStatusDb;
+        item_codes: string[] | null;
       }>(
-        `SELECT id, equipment_id, quantity, status
+        `SELECT id, equipment_id, quantity, status, item_codes
          FROM borrows
          WHERE id = $1
          FOR UPDATE`,
@@ -866,39 +881,59 @@ export async function verifyScan(req: Request, res: Response): Promise<void> {
         );
       } else {
         action = 'return';
-        await client.query(`UPDATE borrows SET status = 'returned' WHERE id = $1`, [borrow.id]);
         await client.query(
-          `UPDATE equipment_items
-           SET status = 'available', borrow_id = NULL
-           WHERE borrow_id = $1 AND status != 'damaged'`,
+          `UPDATE borrows
+           SET status = 'returned',
+               return_date = COALESCE(return_date, CURRENT_DATE)
+           WHERE id = $1`,
           [borrow.id]
         );
+
+        const itemCodes = Array.isArray(borrow.item_codes)
+          ? borrow.item_codes.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+          : [];
+
+        if (itemCodes.length > 0) {
+          await client.query(
+            `UPDATE equipment_items
+             SET status = 'available', borrow_id = NULL
+             WHERE (borrow_id = $1 OR item_code = ANY($2::text[]))
+               AND status != 'damaged'`,
+            [borrow.id, itemCodes]
+          );
+        } else {
+          await client.query(
+            `UPDATE equipment_items
+             SET status = 'available', borrow_id = NULL
+             WHERE borrow_id = $1 AND status != 'damaged'`,
+            [borrow.id]
+          );
+        }
+
         await client.query(
           `UPDATE equipment
-           SET available_qty = LEAST(total_qty, available_qty + $1)
+           SET available_qty = LEAST(COALESCE(total_qty, available_qty + $1), available_qty + $1)
            WHERE id = $2`,
           [borrow.quantity, borrow.equipment_id]
         );
-        try {
-          const itemsCount = await client.query<{ count: number }>(
-            `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,
+
+        const itemsCount = await client.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM equipment_items WHERE equipment_id = $1`,
+          [borrow.equipment_id]
+        );
+        if ((itemsCount.rows[0]?.count ?? 0) > 0) {
+          await client.query(
+            `UPDATE equipment
+             SET available_qty = (
+               SELECT COUNT(*)::int
+               FROM equipment_items
+               WHERE equipment_id = $1 AND status = 'available'
+             )
+             WHERE id = $1`,
             [borrow.equipment_id]
           );
-          if ((itemsCount.rows[0]?.count ?? 0) > 0) {
-            await client.query(
-              `UPDATE equipment
-               SET available_qty = (
-                 SELECT COUNT(*)::int
-                 FROM equipment_items
-                 WHERE equipment_id = $1 AND status = 'available'
-               )
-               WHERE id = $1`,
-              [borrow.equipment_id]
-            );
-          }
-        } catch {
-          // ignore
         }
+
         await refreshEquipmentStatus(client, borrow.equipment_id);
       }
 
